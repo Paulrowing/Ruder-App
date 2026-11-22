@@ -1,3 +1,9 @@
+const MODELS = [
+  "gemini-3.8-flash",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash"
+];
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -23,43 +29,52 @@ Regeln:
 - "split" als 500m-Schnitt z. B. "1:33,1".
 - Wenn ein Feld nicht erkennbar ist, setze es auf null. Erfinde keine Werte.`;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: prompt },
-                {
-                  inline_data: {
-                    mime_type: "image/jpeg",
-                    data: image
-                  }
-                }
-              ]
-            }
-          ],
-          generationConfig: {
-            responseMimeType: "application/json",
-            temperature: 0.1
-          }
-        })
-      }
-    );
+    let lastError = "Auswertung fehlgeschlagen";
+    let lastStatus = 500;
 
-    const data = await response.json();
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: data?.error?.message || "Gemini API Fehler"
-      });
+    for (const model of MODELS) {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  {
+                    inline_data: {
+                      mime_type: "image/jpeg",
+                      data: image
+                    }
+                  }
+                ]
+              }
+            ],
+            generationConfig: {
+              responseMimeType: "application/json",
+              temperature: 0.1
+            }
+          })
+        }
+      );
+
+      const data = await response.json();
+      if (response.ok) {
+        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{"rows":[]}';
+        const parsed = JSON.parse(rawText);
+        return res.status(200).json({ rows: Array.isArray(parsed.rows) ? parsed.rows : [] });
+      }
+
+      lastStatus = response.status;
+      lastError = data?.error?.message || `Gemini API Fehler (${model})`;
+      if (response.status !== 429 && response.status !== 503) {
+        break;
+      }
     }
 
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{"rows":[]}';
-    const parsed = JSON.parse(rawText);
-    return res.status(200).json({ rows: Array.isArray(parsed.rows) ? parsed.rows : [] });
+    return res.status(lastStatus).json({ error: lastError });
   } catch (err) {
     return res.status(500).json({ error: err?.message || "Auswertung fehlgeschlagen" });
   }
