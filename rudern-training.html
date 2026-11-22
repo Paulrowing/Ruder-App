@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rudern Training</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;600;700&display=swap">
+<style>
+:root{--bg:#eef3f4;--card:#fff;--ink:#10242b;--mute:#5d737b;--line:#d3dee1;--acc:#0b5c7a;--accT:#fff;--stop:#c2372b}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0f1a1e;--card:#172a31;--ink:#e6f0f2;--mute:#93aab2;--line:#2a424b;--acc:#4fb3d6;--accT:#08202a;--stop:#ef6a5c}}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.4 "Barlow Semi Condensed",system-ui,sans-serif;font-variant-numeric:tabular-nums}
+main{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:28px;margin:4px 0 12px}h2{font-size:20px;margin:28px 0 8px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:12px}
+label{display:flex;flex-direction:column;font-size:14px;color:var(--mute);gap:2px}
+input,select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;min-width:0}
+button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:12px 16px;background:var(--acc);color:var(--accT);cursor:pointer;min-height:48px}
+button.s{background:transparent;color:var(--ink);border:1px solid var(--line);min-height:44px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border:0}
+.em{color:var(--mute)}.err{color:var(--stop)}.hide{display:none}
+.r{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.nm{font-weight:700;font-size:20px}.tm{font-size:34px;font-weight:700}
+.btns{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}.btns button{flex:1;min-height:56px}
+.lp{font-size:15px;color:var(--mute);margin-top:6px}button.stop{background:var(--stop);color:#fff}
+.w table{min-width:480px;white-space:nowrap}
+.head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.w{overflow-x:auto}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}th{color:var(--mute)}
+.tabs{display:flex;gap:8px;margin-bottom:12px}.tabs button{flex:1}
+form{display:flex;flex-direction:column;gap:10px}
+</style></head><body><main id="app"><p class="em">Lädt …</p></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const sb=supabase.createClient('https://kosjjjtyacqrwskeguoj.supabase.co','sb_publishable_GOylUkcgi71ZWZ0Wl2ttLg_XpkXHb8N');
+const app=document.getElementById('app');
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const f=ms=>{ms=Math.floor(ms/100);return Math.floor(ms/600)+':'+String(Math.floor(ms/10)%60).padStart(2,'0')+','+ms%10};
+let me=null,authMode='login';
+
+function showAuth(msg=''){
+ const reg=authMode==='register';
+ app.innerHTML=`<h1>Rudern Training</h1>
+ <div class="tabs"><button class="${reg?'s':''}" data-m="login">Anmelden</button><button class="${reg?'':'s'}" data-m="register">Registrieren</button></div>
+ <form id="af">${reg?'<label>Name<input id="nm" required autocomplete="name"></label>':''}
+ <label>E-Mail<input id="em" type="email" required autocomplete="email"></label>
+ <label>Passwort (mind. 6 Zeichen)<input id="pw" type="password" minlength="6" required autocomplete="${reg?'new-password':'current-password'}"></label>
+ <button>${reg?'Konto erstellen':'Anmelden'}</button></form><p class="err" id="msg">${esc(msg)}</p>`;
+ app.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{authMode=b.dataset.m;showAuth()});
+ document.getElementById('af').onsubmit=async e=>{e.preventDefault();
+  const email=document.getElementById('em').value.trim(),password=document.getElementById('pw').value;
+  const r=reg?await sb.auth.signUp({email,password,options:{data:{name:document.getElementById('nm').value.trim()}}}):await sb.auth.signInWithPassword({email,password});
+  if(r.error)return showAuth(r.error.message);
+  if(!r.data.session)return showAuth('Fast fertig: Bitte bestätige deine E-Mail über den Link, den wir dir geschickt haben, und melde dich dann an.');
+  boot()};
+}
+async function boot(){
+ const {data:{user}}=await sb.auth.getUser();
+ if(!user)return showAuth();
+ const {data,error}=await sb.from('profiles').select('*').eq('id',user.id).single();
+ if(error)return showAuth('Profil nicht gefunden: '+error.message);
+ me=data;me.role==='rower'?rowerView():trainerView();
+}
+const header=()=>{clearInterval(poll);try{wl&&wl.release()}catch(e){}return `<div class="head"><h1>${esc(me.name||'Hallo')} <span class="em" style="font-size:17px">${{admin:'Admin',trainer:'Trainer'}[me.role]||'Ruderer/in'}</span></h1><button class="s" id="out">Abmelden</button></div>`};
+const bindOut=()=>document.getElementById('out').onclick=async()=>{await sb.auth.signOut();me=null;authMode='login';showAuth()};
+
+async function rowerView(){
+ app.innerHTML=header()+'<h2>Meine Zeiten</h2><div class="box w" id="res"><p class="em">Lädt …</p></div>';bindOut();
+ const [ev,mk,at]=await Promise.all([sb.from('events').select('*'),sb.from('marks').select('*').order('t'),sb.from('athletes').select('id')]);
+ const el=document.getElementById('res');
+ if(ev.error||mk.error||at.error)return el.innerHTML=`<p class="err">${esc((ev.error||mk.error||at.error).message)}</p>`;
+ if(!at.data.length)return el.innerHTML='<p class="em">Dein Konto ist noch keinem Namen zugeordnet. Dein Trainer ordnet dich zu, danach siehst du hier deine Zeiten.</p>';
+ let rows='';
+ ev.data.forEach(e=>{repsOf(mk.data.filter(m=>m.event_id===e.id)).forEach((p,i)=>{
+  rows+=`<tr><td>${esc(e.title)}</td><td>${i+1}</td><td>${p.fin!=null?f(p.fin):'läuft'}</td><td>${p.fin!=null?sp(p.fin,e.distance_m):'–'}</td><td>${secsOf(p,e).map(x=>f(x.t)).join(' · ')}</td></tr>`})});
+ el.innerHTML=rows?'<table><tr><th>Test</th><th>Intervall</th><th>Zeit</th><th>Split/500 m</th><th>Abschnitte</th></tr>'+rows+'</table>':'<p class="em">Noch keine Zeiten. Sobald dein Trainer dich stoppt, erscheinen sie hier.</p>';
+}
+async function trainerView(){
+ app.innerHTML=header()+`<h2>Tests</h2><div class="box"><form id="ef" class="bar" style="margin:0">
+ <label>Name des Tests<input id="et" required placeholder="z. B. 2000 m Test"></label>
+ <label>Distanz (m)<input id="ed" type="number" value="2000" min="1" style="width:100px"></label><button>Anlegen</button></form><div id="ev"></div></div>
+ <h2>Teilnehmer</h2><div class="box">
+ <label>Namen hier einfügen (ein Name pro Zeile, z. B. aus Excel kopiert)<textarea id="nl" rows="5" style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;box-sizing:border-box"></textarea></label>
+ <div class="bar" style="margin-top:8px"><button id="nb">Liste übernehmen</button></div><p class="em" id="nmsg"></p><div id="at"></div></div>
+ ${me.role==='admin'?'<h2>Konten und Rollen</h2><div class="box" id="pp"><p class="em">Lädt …</p></div>':''}`;bindOut();
+ document.getElementById('ef').onsubmit=async e=>{e.preventDefault();
+  const {data:nv,error}=await sb.from('events').insert({title:document.getElementById('et').value.trim(),distance_m:+document.getElementById('ed').value||2000}).select('id').single();
+  if(!error){const al=await sb.from('athletes').select('id');if(al.data&&al.data.length)await sb.from('event_athletes').insert(al.data.map(x=>({event_id:nv.id,athlete_id:x.id})))}
+  if(error)alert(error.message);document.getElementById('et').value='';loadEv()};
+ loadEv();loadAth();if(me.role==='admin')loadPeople();
+}
+async function loadEv(){
+ const {data,error}=await sb.from('events').select('*').order('created_at',{ascending:false});
+ document.getElementById('ev').innerHTML=error?`<p class="err">${esc(error.message)}</p>`:data.length?data.map(e=>`<div class="row"><span>${esc(e.title)}</span><span class="em">${e.distance_m} m</span><button class="s" onclick="eventView('${e.id}')">Öffnen</button></div>`).join(''):'<p class="em">Noch kein Test angelegt.</p>';
+}
+async function loadPeople(){
+ const {data,error}=await sb.from('profiles').select('*').order('name');
+ const el=document.getElementById('pp');
+ if(error)return el.innerHTML=`<p class="err">${esc(error.message)}</p>`;
+ el.innerHTML=data.map(p=>`<div class="row"><span>${esc(p.name||'(ohne Namen)')}</span>
+ <select data-id="${p.id}"${p.id===me.id?' disabled':''}><option value="rower"${p.role==='rower'?' selected':''}>Ruderer/in</option><option value="trainer"${p.role==='trainer'?' selected':''}>Trainer</option><option value="admin"${p.role==='admin'?' selected':''}>Admin</option></select></div>`).join('');
+ el.querySelectorAll('select').forEach(s=>s.onchange=async()=>{const {error}=await sb.from('profiles').update({role:s.value}).eq('id',s.dataset.id);if(error)alert(error.message)});
+}
+let poll=null,off=0,wl=null;
+const T=t=>Date.parse(t);
+const sp=(ms,d)=>d>0?f(ms/d*500):'–';
+function repsOf(ms){const out=[];let c=null;for(const m of ms){const t=T(m.t);
+ if(m.kind==='start'){c={s:t,laps:[],fin:null};out.push(c)}
+ else if(c&&c.fin==null){if(m.kind==='lap')c.laps.push(t-c.s);else c.fin=t-c.s}}return out}
+function secsOf(p,ev){const m=p.laps.concat(p.fin!=null?[p.fin]:[]);return m.map((t,i)=>({t:t-(i?m[i-1]:0),len:i<p.laps.length?ev.section_m:ev.distance_m-ev.section_m*p.laps.length}))}
+async function eventView(id){
+ const [a,b,c]=await Promise.all([sb.from('events').select('*').eq('id',id).single(),sb.from('athletes').select('id,name').order('name'),sb.from('event_athletes').select('athlete_id').eq('event_id',id)]);
+ if(a.error)return alert(a.error.message);
+ let ev=a.data,AL=b.data||[],part=new Set((c.data||[]).map(x=>x.athlete_id)),marks=[],mode='all',clockOk=false;
+ try{mode=localStorage.getItem('mode')||'all'}catch(e){}
+ app.innerHTML=header()+`<button class="s" id="bk">Zurück</button><h2>${esc(ev.title)} <span class="em" style="font-size:17px" id="cnt"></span></h2>
+ <div class="bar"><label>Meine Aufgabe auf diesem Gerät<select id="md"><option value="all">Trainer: alles</option><option value="start">Nur Start</option><option value="lap">Nur Zwischenzeit</option><option value="fin">Nur Ziel</option></select></label>
+ <label class="adm">Distanz (m)<input id="dd" type="number" value="${ev.distance_m}" style="width:100px"></label>
+ <label class="adm">Abschnitt (m)<input id="ss" type="number" value="${ev.section_m}" style="width:100px"></label>
+ <button class="s adm" id="tp">Teilnehmer ändern</button><button id="all">Alle starten</button></div>
+ <div class="adm"><div class="box" id="pl" style="display:none"><div class="bar"><label>Suchen<input id="sq" placeholder="Name"></label><button class="s" id="pa">Alle dabei</button><button class="s" id="pn">Niemand dabei</button></div><div id="pb"></div></div></div>
+ <p class="err" id="msg"></p><div id="lst"></div>
+ <h2>Ergebnisse</h2><div class="box w"><table id="tb"></table></div>
+ <div class="bar adm"><button id="cp" class="s">Tabelle kopieren</button><button id="csv" class="s">Als Excel/CSV laden</button>${me.role==='admin'?'<button id="dl" class="s">Test löschen</button>':''}</div>`;
+ bindOut();
+ const $=x=>document.getElementById(x),msg=t=>$('msg').textContent=t||'';
+ const ps=()=>AL.filter(x=>part.has(x.id));
+ const rp=r=>repsOf(marks.filter(m=>m.rider_id===r.id));
+ const stamp=()=>new Date(Date.now()+off).toISOString();
+ const sync=async()=>{const t0=performance.now(),d=Date.now();const r=await sb.rpc('server_now');if(r.error||!r.data)return;off=T(r.data)-(d+(performance.now()-t0)/2);clockOk=true};
+ const add=async rows=>{const t=stamp();
+  marks=marks.concat(rows.map((r,i)=>({...r,t,id:'tmp'+Date.now()+i}))).sort((x,y)=>T(x.t)-T(y.t));draw();
+  try{navigator.vibrate&&navigator.vibrate(30)}catch(e){}
+  const r=await sb.from('marks').insert(clockOk?rows.map(x=>({...x,t})):rows);
+  if(r.error)msg('Speichern fehlgeschlagen: '+r.error.message);else msg();
+  await load()};
+ const drawPl=()=>{const q=$('sq').value.trim().toLowerCase();
+  $('pb').innerHTML=AL.filter(x=>x.name.toLowerCase().includes(q)).map(x=>`<label class="row" style="flex-direction:row;color:var(--ink);font-size:17px"><span>${esc(x.name)}</span><input type="checkbox" data-p="${x.id}"${part.has(x.id)?' checked':''}></label>`).join('')||'<p class="em">Keine Treffer.</p>'};
+ const draw=()=>{
+  document.querySelectorAll('.adm').forEach(n=>n.classList.toggle('hide',mode!=='all'));
+  $('all').classList.toggle('hide',mode!=='all'&&mode!=='start');$('md').value=mode;
+  $('cnt').textContent=ps().length+' von '+AL.length+' dabei';
+  const rows=[];
+  $('lst').innerHTML=ps().length?ps().map(r=>{const rs=rp(r),l=rs[rs.length-1],cur=l&&l.fin==null?l:null;rs.forEach((p,i)=>rows.push({r,p,i}));
+   const t=cur?`<span class="tm" data-s="${cur.s}">${f(Date.now()+off-cur.s)}</span>`:`<span class="tm">${l?f(l.fin):'0:00,0'}</span>`;
+   let bt='';
+   if(!cur&&(mode==='all'||mode==='start'))bt+=`<button data-a="start" data-r="${r.id}">Start${rs.length?' Intervall '+(rs.length+1):''}</button>`;
+   if(cur&&(mode==='all'||mode==='lap'))bt+=`<button data-a="lap" data-r="${r.id}">Zwischenzeit</button>`;
+   if(cur&&(mode==='all'||mode==='fin'))bt+=`<button class="stop" data-a="fin" data-r="${r.id}">Ziel</button>`;
+   if(rs.length)bt+=`<button class="s" data-a="undo" data-r="${r.id}">Rückgängig</button>`;
+   const lp=rs.map((p,i)=>`Intervall ${i+1}: ${p.fin!=null?f(p.fin)+' ('+sp(p.fin,ev.distance_m)+'/500 m)':'läuft'}`+(i>0&&rs[i-1].fin!=null?` · Pause ${f(p.s-(rs[i-1].s+rs[i-1].fin))}`:'')).join('<br>');
+   return `<div class="r"><div class="top"><span class="nm">${esc(r.name)}${cur?' <span class="em">(Intervall '+rs.length+')</span>':''}</span>${t}</div><div class="btns">${bt}</div>${lp?`<div class="lp">${lp}</div>`:''}</div>`}).join(''):'<p class="em">Keine Teilnehmer. Über „Teilnehmer ändern“ auswählen, wer dabei ist.</p>';
+  rows.sort((x,y)=>x.i-y.i||(x.p.fin==null)-(y.p.fin==null)||(x.p.fin-y.p.fin)||x.r.name.localeCompare(y.r.name));
+  const n=Math.max(0,...rows.map(x=>x.p.laps.length)),pl={};
+  let h='<tr><th>Platz</th><th>Name</th><th>Intervall</th><th>Gesamt</th><th>Split/500 m</th>'+Array.from({length:n},(_,k)=>`<th>Abschnitt ${k+1}</th>`).join('')+'</tr>';
+  rows.forEach(({r,p,i})=>{const s=secsOf(p,ev);h+=`<tr><td>${p.fin!=null?(pl[i]=(pl[i]||0)+1):'–'}</td><td>${esc(r.name)}</td><td>${i+1}</td><td>${p.fin!=null?f(p.fin):'läuft'}</td><td>${p.fin!=null?sp(p.fin,ev.distance_m):'–'}</td>`+Array.from({length:n},(_,k)=>`<td>${s[k]?f(s[k].t):'–'}</td>`).join('')+'</tr>'});
+  $('tb').innerHTML=h};
+ const load=async()=>{const r=await sb.from('marks').select('id,rider_id,kind,t').eq('event_id',id).order('t');if(r.error)msg(r.error.message);else{marks=r.data;draw()}};
+ $('lst').onclick=async e=>{const b=e.target.closest('button');if(!b)return;const r=b.dataset.r,a=b.dataset.a;
+  if(a==='undo'){let l=marks.filter(m=>m.rider_id===r).pop();if(l&&String(l.id).startsWith('tmp')){await load();l=marks.filter(m=>m.rider_id===r).pop()}
+   if(l){marks=marks.filter(m=>m.id!==l.id);draw();await sb.from('marks').delete().eq('id',l.id);await load()}}
+  else add([{event_id:id,rider_id:r,kind:a}])};
+ $('all').onclick=()=>{const rows=ps().filter(r=>{const rs=rp(r),l=rs[rs.length-1];return !l||l.fin!=null}).map(r=>({event_id:id,rider_id:r.id,kind:'start'}));if(rows.length)add(rows)};
+ $('md').onchange=()=>{mode=$('md').value;try{localStorage.setItem('mode',mode)}catch(e){}draw()};
+ const upd=async()=>{ev.distance_m=+$('dd').value||2000;ev.section_m=+$('ss').value||500;await sb.from('events').update({distance_m:ev.distance_m,section_m:ev.section_m}).eq('id',id);draw()};
+ $('dd').onchange=upd;$('ss').onchange=upd;
+ $('tp').onclick=()=>{const p=$('pl');p.style.display=p.style.display==='none'?'block':'none';drawPl()};
+ $('sq').oninput=drawPl;
+ $('pb').onchange=async e=>{const c=e.target.closest('[data-p]');if(!c)return;const aid=c.dataset.p;
+  if(c.checked){part.add(aid);draw();await sb.from('event_athletes').insert({event_id:id,athlete_id:aid})}
+  else{part.delete(aid);draw();await sb.from('event_athletes').delete().eq('event_id',id).eq('athlete_id',aid)}};
+ $('pa').onclick=async()=>{AL.forEach(x=>part.add(x.id));draw();drawPl();await sb.from('event_athletes').upsert(AL.map(x=>({event_id:id,athlete_id:x.id})))};
+ $('pn').onclick=async()=>{part.clear();draw();drawPl();await sb.from('event_athletes').delete().eq('event_id',id)};
+ $('bk').onclick=trainerView;
+ $('cp').onclick=async()=>{const t=[...$('tb').rows].map(tr=>[...tr.cells].map(c=>c.textContent).join('\t')).join('\n');
+  try{await navigator.clipboard.writeText(t);msg('Kopiert. Jetzt in Excel einfügen.')}catch(e){msg('Kopieren nicht möglich.')}};
+ $('csv').onclick=()=>{const t=[...$('tb').rows].map(tr=>[...tr.cells].map(c=>'"'+c.textContent.replace(/"/g,'""')+'"').join(';')).join('\r\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+t],{type:'text/csv;charset=utf-8'}));a.download=ev.title.replace(/[^\w\-]+/g,'_')+'.csv';a.click()};
+ if($('dl'))$('dl').onclick=async()=>{if(!confirm('Diesen Test mit allen Zeiten endgültig löschen?'))return;const r=await sb.from('events').delete().eq('id',id);if(r.error)msg(r.error.message);else trainerView()};
+ try{wl=await navigator.wakeLock.request('screen')}catch(e){}
+ await sync();await load();
+ let k=0;poll=setInterval(()=>{document.querySelectorAll('[data-s]').forEach(n=>n.textContent=f(Date.now()+off-n.dataset.s));k++;if(k%15===0)load();if(k%600===0)sync()},100);
+}
+let ATH=[];
+async function loadAth(){
+ const [a,p]=await Promise.all([sb.from('athletes').select('*').order('name'),sb.from('profiles').select('id,name').order('name')]);
+ const el=document.getElementById('at');
+ if(a.error)return el.innerHTML=`<p class="err">${esc(a.error.message)}</p>`;
+ ATH=a.data;const PRO=p.data||[];
+ el.innerHTML=ATH.length?ATH.map(x=>`<div class="row"><span>${esc(x.name)}</span><span style="display:flex;gap:6px;align-items:center">
+  <select data-l="${x.id}"><option value="">Kein Konto verknüpft</option>${PRO.map(q=>`<option value="${q.id}"${x.user_id===q.id?' selected':''}>${esc(q.name||'(ohne Namen)')}</option>`).join('')}</select>
+  <button class="s" data-d="${x.id}" title="Entfernen">✕</button></span></div>`).join(''):'<p class="em">Noch keine Teilnehmer.</p>';
+ el.onchange=async e=>{const s=e.target.closest('select');if(!s)return;const r=await sb.from('athletes').update({user_id:s.value||null}).eq('id',s.dataset.l);if(r.error)alert(r.error.message)};
+ el.onclick=async e=>{const b=e.target.closest('[data-d]');if(!b||!confirm('Teilnehmer samt allen Zeiten löschen?'))return;const r=await sb.from('athletes').delete().eq('id',b.dataset.d);if(r.error)alert(r.error.message);loadAth()};
+ document.getElementById('nb').onclick=async()=>{
+  const ex=new Set(ATH.map(x=>x.name.toLowerCase()));
+  const all=document.getElementById('nl').value.split(/\r?\n|;/).map(x=>x.replace(/\t+/g,' ').trim()).filter(Boolean);
+  const names=[...new Set(all)].filter(n=>!ex.has(n.toLowerCase()));
+  const m=document.getElementById('nmsg');
+  if(!names.length){m.textContent='Keine neuen Namen gefunden.';return}
+  const r=await sb.from('athletes').insert(names.map(name=>({name})));
+  if(r.error){m.textContent='Fehler: '+r.error.message;return}
+  m.textContent=names.length+' hinzugefügt'+(all.length>names.length?', '+(all.length-names.length)+' schon vorhanden und übersprungen':'')+'.';
+  document.getElementById('nl').value='';loadAth()};
+}
+boot();
+</script></body></html>
