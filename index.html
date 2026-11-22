@@ -30,6 +30,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .tabs{display:flex;gap:8px;margin-bottom:12px}.tabs button{flex:1}
 form{display:flex;flex-direction:column;gap:10px}
 </style></head><body><main id="app"><p class="em">Lädt …</p></main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 const sb=supabase.createClient('https://kosjjjtyacqrwskeguoj.supabase.co','sb_publishable_GOylUkcgi71ZWZ0Wl2ttLg_XpkXHb8N');
@@ -65,29 +66,33 @@ const header=()=>{clearInterval(poll);try{wl&&wl.release()}catch(e){}return `<di
 const bindOut=()=>document.getElementById('out').onclick=async()=>{await sb.auth.signOut();me=null;authMode='login';showAuth()};
 
 async function rowerView(){
- app.innerHTML=header()+'<h2>Meine Zeiten</h2><div class="box w" id="res"><p class="em">Lädt …</p></div>';bindOut();
- const [ev,mk,at]=await Promise.all([sb.from('events').select('*'),sb.from('marks').select('*').order('t'),sb.from('athletes').select('id')]);
+ app.innerHTML=header()+'<h2>Meine Zeiten</h2><div class="box w" id="res"><p class="em">Lädt …</p></div><h2>Entwicklung</h2><div class="box" id="hist"><p class="em">Lädt …</p></div><h2>Foto einreichen</h2><div class="box" id="ph"></div>';bindOut();photoUI(document.getElementById('ph'));
+ const [ev,mk,at]=await Promise.all([sb.from('events').select('*'),sb.from('marks').select('*').order('t'),sb.from('athletes').select('name,birth_year,gender,weight_class')]);
  const el=document.getElementById('res');
  if(ev.error||mk.error||at.error)return el.innerHTML=`<p class="err">${esc((ev.error||mk.error||at.error).message)}</p>`;
  if(!at.data.length)return el.innerHTML='<p class="em">Dein Konto ist noch keinem Namen zugeordnet. Dein Trainer ordnet dich zu, danach siehst du hier deine Zeiten.</p>';
  let rows='';
  ev.data.forEach(e=>{repsOf(mk.data.filter(m=>m.event_id===e.id)).forEach((p,i)=>{
   rows+=`<tr><td>${esc(e.title)}</td><td>${i+1}</td><td>${p.fin!=null?f(p.fin):'läuft'}</td><td>${p.fin!=null?sp(p.fin,e.distance_m):'–'}</td><td>${secsOf(p,e).map(x=>f(x.t)).join(' · ')}</td></tr>`})});
- el.innerHTML=rows?'<table><tr><th>Test</th><th>Intervall</th><th>Zeit</th><th>Split/500 m</th><th>Abschnitte</th></tr>'+rows+'</table>':'<p class="em">Noch keine Zeiten. Sobald dein Trainer dich stoppt, erscheinen sie hier.</p>';
+ const prof1=`<p class="em">${esc(at.data.map(x=>x.name+' · '+prof(x)).join(' / '))}</p>`;
+ el.innerHTML=prof1+(rows?'<table><tr><th>Test</th><th>Intervall</th><th>Zeit</th><th>Split/500 m</th><th>Abschnitte</th></tr>'+rows+'</table>':'<p class="em">Noch keine Zeiten. Sobald dein Trainer dich stoppt, erscheinen sie hier.</p>');
+ loadHist(document.getElementById('hist'));
 }
 async function trainerView(){
- app.innerHTML=header()+`<h2>Tests</h2><div class="box"><form id="ef" class="bar" style="margin:0">
+ app.innerHTML=header()+`<div class="bar" style="margin-top:8px"><button id="stb">Auswertung &amp; Vergleich</button></div><h2>Tests</h2><div class="box"><form id="ef" class="bar" style="margin:0">
  <label>Name des Tests<input id="et" required placeholder="z. B. 2000 m Test"></label>
- <label>Distanz (m)<input id="ed" type="number" value="2000" min="1" style="width:100px"></label><button>Anlegen</button></form><div id="ev"></div></div>
+ <label>Distanz (m)<input id="ed" type="number" value="2000" min="1" style="width:100px"></label><label>Boot<select id="eb">${BOATS.map(b=>`<option>${b}</option>`).join('')}</select></label><button>Anlegen</button></form><div id="ev"></div></div>
+ <h2>Fotos &amp; Einreichungen</h2><div class="box" id="ph"></div><div class="box" id="sv"></div>
+ <details class="box"><summary><b>Referenzzeiten (Weltrekorde)</b></summary><div id="wr"></div></details>
  <h2>Teilnehmer</h2><div class="box">
  <label>Namen hier einfügen (ein Name pro Zeile, z. B. aus Excel kopiert)<textarea id="nl" rows="5" style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;box-sizing:border-box"></textarea></label>
- <div class="bar" style="margin-top:8px"><button id="nb">Liste übernehmen</button></div><p class="em" id="nmsg"></p><div id="at"></div></div>
+ <div class="bar" style="margin-top:8px"><button id="nb">Liste übernehmen</button></div><p class="em" id="nmsg"></p><div id="sd"></div><div id="at"></div></div>
  ${me.role==='admin'?'<h2>Konten und Rollen</h2><div class="box" id="pp"><p class="em">Lädt …</p></div>':''}`;bindOut();
  document.getElementById('ef').onsubmit=async e=>{e.preventDefault();
-  const {data:nv,error}=await sb.from('events').insert({title:document.getElementById('et').value.trim(),distance_m:+document.getElementById('ed').value||2000}).select('id').single();
+  const {data:nv,error}=await sb.from('events').insert({title:document.getElementById('et').value.trim(),distance_m:+document.getElementById('ed').value||2000,boat_class:document.getElementById('eb').value}).select('id').single();
   if(!error){const al=await sb.from('athletes').select('id');if(al.data&&al.data.length)await sb.from('event_athletes').insert(al.data.map(x=>({event_id:nv.id,athlete_id:x.id})))}
   if(error)alert(error.message);document.getElementById('et').value='';loadEv()};
- loadEv();loadAth();if(me.role==='admin')loadPeople();
+ document.getElementById('stb').onclick=statsView;photoUI(document.getElementById('ph'));loadEv();loadAth();loadWr();if(me.role==='admin')loadPeople();
 }
 async function loadEv(){
  const {data,error}=await sb.from('events').select('*').order('created_at',{ascending:false});
@@ -109,9 +114,9 @@ function repsOf(ms){const out=[];let c=null;for(const m of ms){const t=T(m.t);
  else if(c&&c.fin==null){if(m.kind==='lap')c.laps.push(t-c.s);else c.fin=t-c.s}}return out}
 function secsOf(p,ev){const m=p.laps.concat(p.fin!=null?[p.fin]:[]);return m.map((t,i)=>({t:t-(i?m[i-1]:0),len:i<p.laps.length?ev.section_m:ev.distance_m-ev.section_m*p.laps.length}))}
 async function eventView(id){
- const [a,b,c]=await Promise.all([sb.from('events').select('*').eq('id',id).single(),sb.from('athletes').select('id,name').order('name'),sb.from('event_athletes').select('athlete_id').eq('event_id',id)]);
+ const [a,b,c]=await Promise.all([sb.from('events').select('*').eq('id',id).single(),sb.from('athletes').select('id,name,birth_year,gender,weight_class').order('name'),sb.from('event_athletes').select('athlete_id,boat_class').eq('event_id',id)]);
  if(a.error)return alert(a.error.message);
- let ev=a.data,AL=b.data||[],part=new Set((c.data||[]).map(x=>x.athlete_id)),marks=[],mode='all',clockOk=false;
+ let ev=a.data,AL=b.data||[],part=new Set((c.data||[]).map(x=>x.athlete_id)),bc=Object.fromEntries((c.data||[]).map(x=>[x.athlete_id,x.boat_class])),WRs=[],sortWr=false,marks=[],mode='all',clockOk=false;
  try{mode=localStorage.getItem('mode')||'all'}catch(e){}
  app.innerHTML=header()+`<button class="s" id="bk">Zurück</button><h2>${esc(ev.title)} <span class="em" style="font-size:17px" id="cnt"></span></h2>
  <div class="bar"><label>Meine Aufgabe auf diesem Gerät<select id="md"><option value="all">Trainer: alles</option><option value="start">Nur Start</option><option value="lap">Nur Zwischenzeit</option><option value="fin">Nur Ziel</option></select></label>
@@ -120,9 +125,10 @@ async function eventView(id){
  <button class="s adm" id="tp">Teilnehmer ändern</button><button id="all">Alle starten</button></div>
  <div class="adm"><div class="box" id="pl" style="display:none"><div class="bar"><label>Suchen<input id="sq" placeholder="Name"></label><button class="s" id="pa">Alle dabei</button><button class="s" id="pn">Niemand dabei</button></div><div id="pb"></div></div></div>
  <p class="err" id="msg"></p><div id="lst"></div>
- <h2>Ergebnisse</h2><div class="box w"><table id="tb"></table></div>
+ <h2>Ergebnisse</h2><div class="bar"><button class="s" id="so">Sortierung: Zeit</button></div><div class="box w"><table id="tb"></table></div>
  <div class="bar adm"><button id="cp" class="s">Tabelle kopieren</button><button id="csv" class="s">Als Excel/CSV laden</button>${me.role==='admin'?'<button id="dl" class="s">Test löschen</button>':''}</div>`;
  bindOut();
+ sb.from('world_records').select('*').then(r=>{WRs=r.data||[];draw()});
  const $=x=>document.getElementById(x),msg=t=>$('msg').textContent=t||'';
  const ps=()=>AL.filter(x=>part.has(x.id));
  const rp=r=>repsOf(marks.filter(m=>m.rider_id===r.id));
@@ -149,17 +155,26 @@ async function eventView(id){
    if(cur&&(mode==='all'||mode==='fin'))bt+=`<button class="stop" data-a="fin" data-r="${r.id}">Ziel</button>`;
    if(rs.length)bt+=`<button class="s" data-a="undo" data-r="${r.id}">Rückgängig</button>`;
    const lp=rs.map((p,i)=>`Intervall ${i+1}: ${p.fin!=null?f(p.fin)+' ('+sp(p.fin,ev.distance_m)+'/500 m)':'läuft'}`+(i>0&&rs[i-1].fin!=null?` · Pause ${f(p.s-(rs[i-1].s+rs[i-1].fin))}`:'')).join('<br>');
-   return `<div class="r"><div class="top"><span class="nm">${esc(r.name)}${cur?' <span class="em">(Intervall '+rs.length+')</span>':''}</span>${t}</div><div class="btns">${bt}</div>${lp?`<div class="lp">${lp}</div>`:''}</div>`}).join(''):'<p class="em">Keine Teilnehmer. Über „Teilnehmer ändern“ auswählen, wer dabei ist.</p>';
+   return `<div class="r"><div class="top"><span class="nm">${esc(r.name)}${cur?' <span class="em">(Intervall '+rs.length+')</span>':''}</span>${t}</div>${mode==='all'?`<select data-b="${r.id}" style="margin-top:6px">${BOATS.map(b=>`<option${(bc[r.id]||ev.boat_class)===b?' selected':''}>${b}</option>`).join('')}</select>`:''}<div class="btns">${bt}</div>${lp?`<div class="lp">${lp}</div>`:''}</div>`}).join(''):'<p class="em">Keine Teilnehmer. Über „Teilnehmer ändern“ auswählen, wer dabei ist.</p>';
+  const aOf=Object.fromEntries(AL.map(x=>[x.id,x])),yr=new Date(ev.created_at).getFullYear();
+  rows.forEach(x=>{const a=aOf[x.r.id]||{},bt=bc[x.r.id]||ev.boat_class,ac=ageClass(a.birth_year,yr),w=a.weight_class||'open';
+   const m=k=>k.gender===a.gender&&k.weight_class===w&&k.boat_class===bt&&k.distance_m===ev.distance_m;
+   const k=WRs.find(z=>m(z)&&z.age_class===ac);
+   x.wr=k?k.record_ms:null;x.wl=k&&k.age_class!==ac?k.age_class:'';x.pct=x.wr&&x.p.fin?x.wr/x.p.fin*100:null;x.bt=bt;x.ac=ac});
   rows.sort((x,y)=>x.i-y.i||(x.p.fin==null)-(y.p.fin==null)||(x.p.fin-y.p.fin)||x.r.name.localeCompare(y.r.name));
-  const n=Math.max(0,...rows.map(x=>x.p.laps.length)),pl={};
-  let h='<tr><th>Platz</th><th>Name</th><th>Intervall</th><th>Gesamt</th><th>Split/500 m</th>'+Array.from({length:n},(_,k)=>`<th>Abschnitt ${k+1}</th>`).join('')+'</tr>';
-  rows.forEach(({r,p,i})=>{const s=secsOf(p,ev);h+=`<tr><td>${p.fin!=null?(pl[i]=(pl[i]||0)+1):'–'}</td><td>${esc(r.name)}</td><td>${i+1}</td><td>${p.fin!=null?f(p.fin):'läuft'}</td><td>${p.fin!=null?sp(p.fin,ev.distance_m):'–'}</td>`+Array.from({length:n},(_,k)=>`<td>${s[k]?f(s[k].t):'–'}</td>`).join('')+'</tr>'});
+  const pl={};rows.forEach(x=>x.pl=x.p.fin!=null?(pl[x.i]=(pl[x.i]||0)+1):'–');
+  if(sortWr)rows.sort((x,y)=>x.i-y.i||((y.pct??-1)-(x.pct??-1)));
+  const n=Math.max(0,...rows.map(x=>x.p.laps.length));
+  let h='<tr><th>Platz</th><th>Name</th><th>AK</th><th>Boot</th><th>Int.</th><th>Gesamt</th><th>Split/500 m</th><th>WR</th><th>Diff. WR</th><th>% WR</th>'+Array.from({length:n},(_,k)=>`<th>Abschnitt ${k+1}</th>`).join('')+'</tr>';
+  rows.forEach(x=>{const s=secsOf(x.p,ev),fin=x.p.fin;h+=`<tr><td>${x.pl}</td><td>${esc(x.r.name)}</td><td>${x.ac||'–'}</td><td>${x.bt}</td><td>${x.i+1}</td><td>${fin!=null?f(fin):'läuft'}</td><td>${fin!=null?sp(fin,ev.distance_m):'–'}</td><td>${x.wr?f(x.wr)+(x.wl?' ('+x.wl+')':''):'–'}</td><td>${x.wr&&fin!=null?(fin>=x.wr?'+':'−')+f(Math.abs(fin-x.wr)):'–'}</td><td>${x.pct?x.pct.toFixed(1).replace('.',',')+' %':'–'}</td>`+Array.from({length:n},(_,k)=>`<td>${s[k]?f(s[k].t):'–'}</td>`).join('')+'</tr>'});
   $('tb').innerHTML=h};
  const load=async()=>{const r=await sb.from('marks').select('id,rider_id,kind,t').eq('event_id',id).order('t');if(r.error)msg(r.error.message);else{marks=r.data;draw()}};
  $('lst').onclick=async e=>{const b=e.target.closest('button');if(!b)return;const r=b.dataset.r,a=b.dataset.a;
   if(a==='undo'){let l=marks.filter(m=>m.rider_id===r).pop();if(l&&String(l.id).startsWith('tmp')){await load();l=marks.filter(m=>m.rider_id===r).pop()}
    if(l){marks=marks.filter(m=>m.id!==l.id);draw();await sb.from('marks').delete().eq('id',l.id);await load()}}
   else add([{event_id:id,rider_id:r,kind:a}])};
+ $('lst').onchange=async e=>{const q=e.target.closest('[data-b]');if(!q)return;bc[q.dataset.b]=q.value;draw();await sb.from('event_athletes').update({boat_class:q.value}).eq('event_id',id).eq('athlete_id',q.dataset.b)};
+ $('so').onclick=()=>{sortWr=!sortWr;$('so').textContent='Sortierung: '+(sortWr?'% WR':'Zeit');draw()};
  $('all').onclick=()=>{const rows=ps().filter(r=>{const rs=rp(r),l=rs[rs.length-1];return !l||l.fin!=null}).map(r=>({event_id:id,rider_id:r.id,kind:'start'}));if(rows.length)add(rows)};
  $('md').onchange=()=>{mode=$('md').value;try{localStorage.setItem('mode',mode)}catch(e){}draw()};
  const upd=async()=>{ev.distance_m=+$('dd').value||2000;ev.section_m=+$('ss').value||500;await sb.from('events').update({distance_m:ev.distance_m,section_m:ev.section_m}).eq('id',id);draw()};
@@ -181,17 +196,163 @@ async function eventView(id){
  await sync();await load();
  let k=0;poll=setInterval(()=>{document.querySelectorAll('[data-s]').forEach(n=>n.textContent=f(Date.now()+off-n.dataset.s));k++;if(k%15===0)load();if(k%600===0)sync()},100);
 }
+const BOATS=['Erg','1x','2-','2x','4-','4x','8+'],ACS=['U17','U19','U23','Elite'];
+const ageClass=(by,y)=>{if(!by)return '';const a=y-by;return a<=16?'U17':a<=18?'U19':a<=22?'U23':'Elite'};
+const prof=x=>[x.birth_year?ageClass(x.birth_year,new Date().getFullYear())+' ('+x.birth_year+')':'',x.gender,x.weight_class==='lw'?'Leichtgewicht':''].filter(Boolean).join(' · ')||'Stammdaten fehlen';
+const parseT=v=>{const m=String(v).trim().replace('.',',').match(/^(?:(\d+):)?(\d{1,2})(?:,(\d{1,3}))?$/);return m?((+(m[1]||0))*60+ +m[2])*1000+Math.round(+('0.'+(m[3]||'0'))*1000):null};
+function editAth(id){const x=ATH.find(a=>a.id===id),d=document.getElementById('sd');
+ d.innerHTML=`<div class="box"><b>${esc(x.name)}</b><div class="bar" style="margin-top:8px"><label>Geburtsjahr<input id="sby" type="number" value="${x.birth_year||''}" style="width:100px"></label>
+ <label>Geschlecht<select id="sg"><option value="">–</option><option value="m"${x.gender==='m'?' selected':''}>m</option><option value="w"${x.gender==='w'?' selected':''}>w</option></select></label>
+ <label>Gewichtsklasse<select id="sw"><option value="open">Offen</option><option value="lw"${x.weight_class==='lw'?' selected':''}>Leichtgewicht</option></select></label>
+ <button id="ssv">Speichern</button><button class="s" id="scn">Abbrechen</button></div></div>`;
+ document.getElementById('scn').onclick=()=>d.innerHTML='';
+ document.getElementById('ssv').onclick=async()=>{const r=await sb.from('athletes').update({birth_year:+document.getElementById('sby').value||null,gender:document.getElementById('sg').value||null,weight_class:document.getElementById('sw').value}).eq('id',id);if(r.error)return alert(r.error.message);d.innerHTML='';loadAth()}}
+async function loadWr(){
+ const r=await sb.from('world_records').select('*').order('boat_class').order('age_class'),el=document.getElementById('wr');
+ if(r.error)return el.innerHTML=`<p class="err">${esc(r.error.message)}</p>`;
+ const op=a=>a.map(x=>`<option>${x}</option>`).join('');
+ el.innerHTML=`<p class="em" style="margin-top:10px">Jede Altersklasse wird mit ihrer eigenen Referenzzeit verglichen. Fehlt sie, bleibt die WR-Spalte leer. Dann kannst du sie hier selbst eintragen.</p><div class="bar"><label>Altersklasse<select id="wa">${op(ACS)}</select></label><label>Geschlecht<select id="wg"><option>m</option><option>w</option></select></label>
+ <label>Gewicht<select id="ww"><option value="open">Offen</option><option value="lw">Leicht</option></select></label><label>Boot<select id="wb">${op(BOATS)}</select></label>
+ <label>Distanz (m)<input id="wd" type="number" value="2000" style="width:90px"></label><label>Zeit (m:ss,t)<input id="wt" placeholder="5:35,8" style="width:110px"></label>
+ <label>Quelle<input id="wn" placeholder="optional"></label><button id="wad">Speichern</button></div><p class="err" id="wm"></p>`+
+ (r.data.length?r.data.map(w=>`<div class="row"><span>${w.age_class} · ${w.gender} · ${w.weight_class==='lw'?'Leicht':'Offen'} · ${w.boat_class} · ${w.distance_m} m${w.note?' <span class="em">'+esc(w.note)+'</span>':''}</span><span>${f(w.record_ms)} <button class="s" data-w="${w.id}">✕</button></span></div>`).join(''):'<p class="em">Noch keine Referenzzeiten eingetragen (z. B. von worldrowing.com oder concept2.com).</p>');
+ document.getElementById('wad').onclick=async()=>{const ms=parseT(document.getElementById('wt').value),v=i=>document.getElementById(i).value;
+  if(!ms)return document.getElementById('wm').textContent='Zeit bitte als m:ss,t eingeben, z. B. 5:35,8';
+  const q=await sb.from('world_records').upsert({age_class:v('wa'),gender:v('wg'),weight_class:v('ww'),boat_class:v('wb'),distance_m:+v('wd')||2000,record_ms:ms,note:v('wn')||null,updated_at:new Date().toISOString()},{onConflict:'age_class,gender,weight_class,boat_class,distance_m'});
+  if(q.error)document.getElementById('wm').textContent=q.error.message;else loadWr()};
+ el.onclick=async e=>{const b=e.target.closest('[data-w]');if(!b||!confirm('Referenzzeit löschen?'))return;await sb.from('world_records').delete().eq('id',b.dataset.w);loadWr()};
+}
+const F={ev:'',ac:'',g:'',bt:'',key:'time',dir:1,sel:null};
+const findWr=(W,ac,g,w,b,d)=>{const m=k=>k.gender===g&&k.weight_class===w&&k.boat_class===b&&k.distance_m===d;return W.find(k=>m(k)&&k.age_class===ac)};
+async function fetchAll(t,sel,ord){let o=[],i=0;for(;;){let q=sb.from(t).select(sel);ord.forEach(c=>q=q.order(c));const r=await q.range(i,i+999);if(r.error)throw r.error;o=o.concat(r.data);if(r.data.length<1000)return o;i+=1000}}
+async function loadStats(){
+ const [E,A,EA,M,W]=await Promise.all([fetchAll('events','*',['id']),fetchAll('athletes','*',['id']),fetchAll('event_athletes','*',['event_id','athlete_id']),fetchAll('marks','rider_id,event_id,kind,t',['id']),fetchAll('world_records','*',['id'])]);
+ const bo={};EA.forEach(x=>bo[x.event_id+'|'+x.athlete_id]=x.boat_class);
+ const mk={};M.forEach(m=>(mk[m.event_id+'|'+m.rider_id]=mk[m.event_id+'|'+m.rider_id]||[]).push(m));
+ const aM=Object.fromEntries(A.map(a=>[a.id,a])),eM=Object.fromEntries(E.map(e=>[e.id,e])),R=[];
+ for(const k in mk){const [eid,aid]=k.split('|'),e=eM[eid],a=aM[aid];if(!e||!a)continue;
+  const reps=repsOf(mk[k].sort((x,y)=>T(x.t)-T(y.t))).filter(r=>r.fin!=null);if(!reps.length)continue;
+  const boat=bo[k]||e.boat_class,ac=ageClass(a.birth_year,new Date(e.created_at).getFullYear()),w=findWr(W,ac,a.gender,a.weight_class||'open',boat,e.distance_m);
+  R.push({e,a,fin:Math.min(...reps.map(r=>r.fin)),boat,ac,wr:w?w.record_ms:null,wl:w&&w.age_class!==ac?w.age_class:'',date:T(e.created_at)})}
+ return {D:{E,A,EA,M,W},R}}
+const pc=v=>v.toFixed(1).replace('.',',')+' %';
+function barSvg(rows){
+ const v=rows.filter(r=>r.fin);if(!v.length)return '<p class="em">Keine Daten für die Grafik.</p>';
+ const all=v.flatMap(r=>r.wr?[r.fin,r.wr]:[r.fin]),lo=Math.min(...all)*0.97,hi=Math.max(...all)*1.01,W=600,L=110,Rr=130,h=26,X=t=>L+(t-lo)/(hi-lo)*(W-L-Rr);
+ return `<svg viewBox="0 0 ${W} ${v.length*h+26}" style="width:100%;height:auto;font:13px Barlow Semi Condensed,sans-serif">`+v.map((r,i)=>`<text x="${L-6}" y="${i*h+17}" text-anchor="end" fill="currentColor">${esc(r.a.name.slice(0,16))}</text><rect x="${L}" y="${i*h+4}" width="${Math.max(2,X(r.fin)-L)}" height="${h-8}" rx="3" style="fill:var(--acc)"/>${r.wr?`<rect x="${X(r.wr)-1.5}" y="${i*h+1}" width="3" height="${h-2}" style="fill:var(--stop)"/>`:''}<text x="${X(Math.max(r.fin,r.wr||0))+7}" y="${i*h+17}" fill="currentColor">${f(r.fin)}${r.wr?' · '+pc(r.wr/r.fin*100):''}</text>`).join('')+`<text x="${L}" y="${v.length*h+20}" fill="currentColor" opacity=".65">Skala ab ${f(lo)} · rote Marke = Weltrekord</text></svg>`}
+function lineSvg(pts,wr){
+ const ys=pts.map(p=>p.y).concat(wr?[wr]:[]),lo=Math.min(...ys),hi=Math.max(...ys),W=600,H=230,L=14,Tp=30,Bt=34,n=pts.length;
+ const X=i=>n<2?W/2:L+26+i*(W-2*L-52)/(n-1),Y=y=>Tp+(hi===lo?.5:(y-lo)/(hi-lo))*(H-Tp-Bt);
+ return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;font:13px Barlow Semi Condensed,sans-serif">`
+ +(wr?`<line x1="${L}" x2="${W-L}" y1="${Y(wr)}" y2="${Y(wr)}" stroke-dasharray="5 4" style="stroke:var(--stop)"/><text x="${W-L}" y="${Y(wr)-5}" text-anchor="end" style="fill:var(--stop)">WR ${f(wr)}</text>`:'')
+ +(n>1?`<polyline fill="none" stroke-width="2.5" style="stroke:var(--acc)" points="${pts.map((p,i)=>X(i)+','+Y(p.y)).join(' ')}"/>`:'')
+ +pts.map((p,i)=>`<circle cx="${X(i)}" cy="${Y(p.y)}" r="5" style="fill:var(--acc)"/><text x="${X(i)}" y="${Y(p.y)-10}" text-anchor="middle" fill="currentColor">${f(p.y)}</text><text x="${X(i)}" y="${H-12}" text-anchor="middle" fill="currentColor" opacity=".65">${p.l}</text>`).join('')+'</svg>'}
+const dlt=d=>d==null?'–':`<span style="color:var(--${d<0?'acc':'stop'})">${d<0?'−':'+'}${f(Math.abs(d))}</span>`;
+function histHtml(S,aid){
+ const mine=S.R.filter(r=>r.a.id===aid).sort((x,y)=>x.date-y.date);
+ if(!mine.length)return '<p class="em">Noch keine Ergebnisse.</p>';
+ const last=mine[mine.length-1],list=mine.filter(r=>r.e.distance_m===last.e.distance_m&&r.boat===last.boat);
+ const pts=list.map(r=>({l:new Date(r.e.created_at).toLocaleDateString('de-AT',{day:'2-digit',month:'2-digit'}),y:r.fin}));
+ const tr=[...list].reverse().map((r,i,a)=>`<tr><td>${new Date(r.e.created_at).toLocaleDateString('de-AT')}</td><td>${esc(r.e.title)}</td><td>${f(r.fin)}</td><td>${sp(r.fin,r.e.distance_m)}</td><td>${r.wr?pc(r.wr/r.fin*100):'–'}</td><td>${a[i+1]?dlt(r.fin-a[i+1].fin):'–'}</td></tr>`).join('');
+ return `<p class="em">${esc(last.a.name)} · ${last.e.distance_m} m · ${last.boat} · oben = schneller</p>${lineSvg(pts,last.wr)}<div class="w"><table><tr><th>Datum</th><th>Test</th><th>Zeit</th><th>Split/500 m</th><th>% WR</th><th>Veränderung</th></tr>${tr}</table></div>`}
+async function loadHist(el){try{const S=await loadStats(),a=S.D.A[0];el.innerHTML=a?histHtml(S,a.id):'<p class="em">Noch keine Daten.</p>'}catch(e){el.innerHTML=`<p class="err">${esc(e.message)}</p>`}}
+async function statsView(){
+ app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Auswertung</h2><div id="st"><p class="em">Lädt …</p></div>';bindOut();
+ document.getElementById('bk').onclick=trainerView;
+ const $=i=>document.getElementById(i);let S;
+ try{S=await loadStats()}catch(e){return $('st').innerHTML=`<p class="err">${esc(e.message)}</p>`}
+ const evs=[...new Map(S.R.map(r=>[r.e.id,r.e])).values()].sort((a,b)=>T(b.created_at)-T(a.created_at));
+ if(!evs.length)return $('st').innerHTML='<p class="em">Noch keine Ergebnisse vorhanden.</p>';
+ if(!evs.some(e=>e.id===F.ev))F.ev=evs[0].id;
+ const op=(a,sel)=>a.map(([v,l])=>`<option value="${v}"${v===sel?' selected':''}>${esc(l)}</option>`).join('');
+ $('st').innerHTML=`<div class="bar">
+ <label>Test<select id="fe">${op(evs.map(e=>[e.id,e.title+' · '+new Date(e.created_at).toLocaleDateString('de-AT')+' · '+e.distance_m+' m']),F.ev)}</select></label>
+ <label>Altersklasse<select id="fa">${op([['','Alle'],...ACS.map(x=>[x,x])],F.ac)}</select></label>
+ <label>Geschlecht<select id="fg">${op([['','Alle'],['m','männlich'],['w','weiblich']],F.g)}</select></label>
+ <label>Bootsklasse<select id="fb">${op([['','Alle'],...BOATS.map(x=>[x,x])],F.bt)}</select></label>
+ <label>Sortieren nach<select id="fk">${op([['time','Zeit'],['pct','% WR'],['name','Name'],['delta','Veränderung']],F.key)}</select></label>
+ <button class="s" id="fd"></button></div>
+ <h2 id="t1" style="margin-top:8px"></h2><div class="box"><div id="ch"></div></div><div class="box w"><table id="tt"></table></div>
+ <div class="bar" style="margin-top:12px"><button class="s" id="xc">Tabelle kopieren</button><button class="s" id="xx">Excel (.xlsx)</button></div>
+ <h2>Entwicklung</h2><div class="box" id="hist"><p class="em">Tippe in der Tabelle auf einen Namen.</p></div>`;
+ const upd=()=>{
+  let rows=S.R.filter(r=>r.e.id===F.ev&&(!F.ac||r.ac===F.ac)&&(!F.g||r.a.gender===F.g)&&(!F.bt||r.boat===F.bt));
+  const rk=[...rows].sort((x,y)=>x.fin-y.fin);
+  rows.forEach(r=>{r.pl=rk.indexOf(r)+1;r.pct=r.wr?r.wr/r.fin*100:null;
+   const same=S.R.filter(z=>z.a.id===r.a.id&&z.e.distance_m===r.e.distance_m&&z.boat===r.boat),pv=same.filter(z=>z.date<r.date).sort((x,y)=>y.date-x.date)[0];
+   r.prev=pv?pv.fin:null;r.dl=pv?r.fin-pv.fin:null;r.pb=Math.min(...same.map(z=>z.fin))});
+  const kf={time:r=>r.fin,pct:r=>r.pct,name:r=>r.a.name,delta:r=>r.dl}[F.key];
+  rows.sort((x,y)=>{const a=kf(x),b=kf(y);if(a==null&&b==null)return 0;if(a==null)return 1;if(b==null)return -1;return(typeof a==='string'?a.localeCompare(b):a-b)*F.dir});
+  $('fd').textContent=F.dir===1?'↑ aufsteigend':'↓ absteigend';
+  $('t1').textContent=evs.find(e=>e.id===F.ev).title+' · '+rows.length+' Ergebnisse';
+  $('ch').innerHTML=barSvg(rows);
+  $('tt').innerHTML='<tr><th>Platz</th><th>Name</th><th>AK</th><th>m/w</th><th>Boot</th><th>Zeit</th><th>Split/500 m</th><th>WR</th><th>Diff. WR</th><th>% WR</th><th>Letzter Test</th><th>Veränderung</th><th>Bestzeit</th></tr>'+rows.map(r=>`<tr><td>${r.pl}</td><td><a href="#" data-h="${r.a.id}" style="color:var(--acc)">${esc(r.a.name)}</a></td><td>${r.ac||'–'}</td><td>${r.a.gender||'–'}</td><td>${r.boat}</td><td>${f(r.fin)}</td><td>${sp(r.fin,r.e.distance_m)}</td><td>${r.wr?f(r.wr)+(r.wl?' ('+r.wl+')':''):'–'}</td><td>${r.wr?(r.fin>=r.wr?'+':'−')+f(Math.abs(r.fin-r.wr)):'–'}</td><td>${r.pct?pc(r.pct):'–'}</td><td>${r.prev?f(r.prev):'–'}</td><td>${dlt(r.dl)}</td><td>${f(r.pb)}${r.fin===r.pb?' ★':''}</td></tr>`).join('');
+  if(F.sel)$('hist').innerHTML=histHtml(S,F.sel)};
+ [['fe','ev'],['fa','ac'],['fg','g'],['fb','bt'],['fk','key']].forEach(([i,k])=>$(i).onchange=()=>{F[k]=$(i).value;upd()});
+ $('fd').onclick=()=>{F.dir=-F.dir;upd()};
+ $('tt').onclick=e=>{const a=e.target.closest('[data-h]');if(!a)return;e.preventDefault();F.sel=a.dataset.h;$('hist').innerHTML=histHtml(S,F.sel);$('hist').scrollIntoView({behavior:'smooth'})};
+ $('xc').onclick=async()=>{try{await navigator.clipboard.writeText([...$('tt').rows].map(r=>[...r.cells].map(c=>c.textContent).join('\t')).join('\n'));$('xc').textContent='Kopiert ✓'}catch(e){alert('Kopieren nicht möglich.')}};
+ $('xx').onclick=()=>{if(typeof XLSX==='undefined')return alert('Excel-Export nicht geladen.');XLSX.writeFile(XLSX.utils.table_to_book($('tt')),'auswertung.xlsx')};
+ upd();
+}
+const shrink=file=>new Promise((ok,no)=>{const i=new Image();i.onload=()=>{const k=Math.min(1,1600/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);c.toBlob(b=>b?ok(b):no(new Error('Bild konnte nicht verarbeitet werden')),'image/jpeg',.82)};i.onerror=()=>no(new Error('Bild nicht lesbar'));i.src=URL.createObjectURL(file)});
+function photoUI(el){
+ const $=i=>document.getElementById(i),m=t=>$('pm').textContent=t,tr=me.role!=='rower';
+ el.innerHTML=`<p class="em">Foto vom Ergometer-Display oder Ergebnisblatt aufnehmen. Die Werte werden automatisch ausgelesen und vom Trainer geprüft.</p><div class="bar"><input type="file" id="pf" accept="image/*" capture="environment" style="width:auto"><button id="pg">Auslesen &amp; einreichen</button></div><p class="em" id="pm"></p><div id="pl2"></div>`;
+ const mine=async()=>{if(tr)return loadSubs();const r=await sb.from('submissions').select('*').order('created_at',{ascending:false});
+  $('pl2').innerHTML=r.error?`<p class="err">${esc(r.error.message)}</p>`:r.data.map(s=>`<div class="row" style="flex-direction:column;align-items:flex-start"><b>${new Date(s.created_at).toLocaleString('de-AT')} · ${s.status}</b><span class="em">${(s.rows||[]).map(x=>esc((x.name||'–')+': '+(x.time||'–')+' ('+(x.split||'–')+'/500 m)')).join('<br>')||'Keine Werte erkannt'}</span></div>`).join('')};
+ $('pg').onclick=async()=>{const file=$('pf').files[0];if(!file)return m('Bitte zuerst ein Foto wählen.');
+  try{m('Lade hoch …');const blob=await shrink(file),{data:{session}}=await sb.auth.getSession(),path=session.user.id+'/'+Date.now()+'.jpg';
+   const up=await sb.storage.from('photos').upload(path,blob,{contentType:'image/jpeg'});if(up.error)throw up.error;
+   m('Lese Werte aus …');
+   const b64=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result.split(',')[1]);fr.readAsDataURL(blob)});
+   const res=await fetch('/api/extract',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({image:b64})}).catch(()=>null);
+   const j=res?await res.json().catch(()=>({})):{};const ok=res&&res.ok;
+   const ins=await sb.from('submissions').insert({photo_path:path,rows:ok?(j.rows||[]):[]});if(ins.error)throw ins.error;
+   m(ok?'Eingereicht. Der Trainer prüft die Werte.':'Foto eingereicht, aber das automatische Auslesen hat nicht geklappt ('+((j&&j.error)||'keine Verbindung')+'). Der Trainer trägt die Werte ein.');
+   $('pf').value='';mine()}catch(e){m('Fehler: '+e.message)}};
+ mine();
+}
+async function loadSubs(){const el=document.getElementById('sv');if(!el)return;
+ const r=await sb.from('submissions').select('*,profiles(name)').order('created_at',{ascending:false});
+ if(r.error)return el.innerHTML=`<p class="err">${esc(r.error.message)}</p>`;
+ el.innerHTML=r.data.length?r.data.map((s,i)=>`<div class="row"><span>${new Date(s.created_at).toLocaleString('de-AT')} · ${esc(s.profiles?.name||'?')} <span class="em">${s.status} · ${(s.rows||[]).length} Zeilen</span></span><button class="s" data-o="${i}">Öffnen</button></div>`).join(''):'<p class="em">Noch keine Einreichungen.</p>';
+ el.onclick=e=>{const b=e.target.closest('[data-o]');if(b)subEdit(r.data[b.dataset.o])}}
+async function subEdit(s){
+ const $=i=>document.getElementById(i),el=$('sv'),C=[['name','Name'],['time','Zeit'],['split','Split/500 m'],['watt','Watt'],['spm','Schläge/min'],['distance_m','Distanz (m)'],['date','Datum'],['boat','Boot']];
+ let rows=JSON.parse(JSON.stringify(s.rows||[])),sk=null,dir=1,q='';
+ const su=await sb.storage.from('photos').createSignedUrl(s.photo_path,3600);
+ el.onclick=null;
+ el.innerHTML=`<div class="bar"><button class="s" id="eb2">Schließen</button><label>Filter<input id="eq" placeholder="Text"></label><button class="s" id="ea">+ Zeile</button></div>${su.data?`<img src="${su.data.signedUrl}" alt="Foto" style="max-width:100%;border-radius:8px;margin-bottom:8px">`:''}<div class="w"><table id="etb"></table></div><p class="em" id="em2"></p>
+ <div class="bar" style="margin-top:8px"><button id="es">Speichern</button><button class="s" id="eg">Als geprüft speichern</button><button class="s" id="ec">CSV</button><button class="s" id="ex">Excel (.xlsx)</button><button class="s" id="ed2">Einreichung löschen</button></div>`;
+ const draw=()=>{let v=rows.map((r,i)=>({r,i})).filter(o=>!q||C.some(([k])=>String(o.r[k]??'').toLowerCase().includes(q)));
+  if(sk)v.sort((a,b)=>String(a.r[sk]??'').localeCompare(String(b.r[sk]??''),'de',{numeric:true})*dir);
+  $('etb').innerHTML='<tr>'+C.map(([k,l])=>`<th data-s="${k}" style="cursor:pointer">${l}${sk===k?(dir>0?' ↑':' ↓'):''}</th>`).join('')+'<th></th></tr>'+v.map(o=>'<tr>'+C.map(([k])=>`<td><input data-i="${o.i}" data-c="${k}" value="${esc(o.r[k]??'')}" style="width:${k==='name'?150:90}px"></td>`).join('')+`<td><button class="s" data-x="${o.i}">✕</button></td></tr>`).join('')};
+ const save=async st=>{const r=await sb.from('submissions').update({rows,status:st}).eq('id',s.id);$('em2').textContent=r.error?r.error.message:'Gespeichert.'};
+ const tab=()=>rows.map(r=>Object.fromEntries(C.map(([k,l])=>[l,r[k]??''])));
+ $('etb').oninput=e=>{const i=e.target.closest('[data-i]');if(i)rows[i.dataset.i][i.dataset.c]=i.value};
+ $('etb').onclick=e=>{const h=e.target.closest('[data-s]'),x=e.target.closest('[data-x]');
+  if(h){dir=sk===h.dataset.s?-dir:1;sk=h.dataset.s;draw()}else if(x){rows.splice(+x.dataset.x,1);draw()}};
+ $('eq').oninput=()=>{q=$('eq').value.trim().toLowerCase();draw()};
+ $('ea').onclick=()=>{rows.push({});draw()};
+ $('es').onclick=()=>save(s.status);$('eg').onclick=()=>save('geprüft');
+ $('ec').onclick=()=>{const t=[C.map(c=>c[1])].concat(rows.map(r=>C.map(([k])=>r[k]??''))).map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+t],{type:'text/csv;charset=utf-8'}));a.download='einreichung.csv';a.click()};
+ $('ex').onclick=()=>{if(typeof XLSX==='undefined')return alert('Excel-Export nicht geladen.');const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(tab()),'Ergebnisse');XLSX.writeFile(wb,'einreichung.xlsx')};
+ $('ed2').onclick=async()=>{if(!confirm('Einreichung samt Foto löschen?'))return;await sb.storage.from('photos').remove([s.photo_path]);await sb.from('submissions').delete().eq('id',s.id);loadSubs()};
+ $('eb2').onclick=loadSubs;draw();
+}
 let ATH=[];
 async function loadAth(){
  const [a,p]=await Promise.all([sb.from('athletes').select('*').order('name'),sb.from('profiles').select('id,name').order('name')]);
  const el=document.getElementById('at');
  if(a.error)return el.innerHTML=`<p class="err">${esc(a.error.message)}</p>`;
  ATH=a.data;const PRO=p.data||[];
- el.innerHTML=ATH.length?ATH.map(x=>`<div class="row"><span>${esc(x.name)}</span><span style="display:flex;gap:6px;align-items:center">
+ el.innerHTML=ATH.length?ATH.map(x=>`<div class="row"><span>${esc(x.name)} <span class="em">${esc(prof(x))}</span></span><span style="display:flex;gap:6px;align-items:center">
   <select data-l="${x.id}"><option value="">Kein Konto verknüpft</option>${PRO.map(q=>`<option value="${q.id}"${x.user_id===q.id?' selected':''}>${esc(q.name||'(ohne Namen)')}</option>`).join('')}</select>
-  <button class="s" data-d="${x.id}" title="Entfernen">✕</button></span></div>`).join(''):'<p class="em">Noch keine Teilnehmer.</p>';
+  <button class="s" data-e="${x.id}" title="Stammdaten">✎</button><button class="s" data-d="${x.id}" title="Entfernen">✕</button></span></div>`).join(''):'<p class="em">Noch keine Teilnehmer.</p>';
  el.onchange=async e=>{const s=e.target.closest('select');if(!s)return;const r=await sb.from('athletes').update({user_id:s.value||null}).eq('id',s.dataset.l);if(r.error)alert(r.error.message)};
- el.onclick=async e=>{const b=e.target.closest('[data-d]');if(!b||!confirm('Teilnehmer samt allen Zeiten löschen?'))return;const r=await sb.from('athletes').delete().eq('id',b.dataset.d);if(r.error)alert(r.error.message);loadAth()};
+ el.onclick=async e=>{const ed=e.target.closest('[data-e]');if(ed)return editAth(ed.dataset.e);const b=e.target.closest('[data-d]');if(!b||!confirm('Teilnehmer samt allen Zeiten löschen?'))return;const r=await sb.from('athletes').delete().eq('id',b.dataset.d);if(r.error)alert(r.error.message);loadAth()};
  document.getElementById('nb').onclick=async()=>{
   const ex=new Set(ATH.map(x=>x.name.toLowerCase()));
   const all=document.getElementById('nl').value.split(/\r?\n|;/).map(x=>x.replace(/\t+/g,' ').trim()).filter(Boolean);
