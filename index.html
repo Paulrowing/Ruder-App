@@ -43,30 +43,30 @@ function showAuth(msg=''){
  const reg=authMode==='register';
  app.innerHTML=`<h1>Rudern Training</h1>
  <div class="tabs"><button class="${reg?'s':''}" data-m="login">Anmelden</button><button class="${reg?'':'s'}" data-m="register">Registrieren</button></div>
- <form id="af">${reg?'<label>Name<input id="nm" required autocomplete="name"></label>':''}
+ <form id="af">${reg?'<label>Name<input id="nm" required autocomplete="name"></label><label>Club (Pflicht)<select id="cl" required><option value="">– wählen –</option>'+CLUBS.map(c=>`<option>${esc(c)}</option>`).join('')+'</select></label>'+(CLUBS.length?'':'<p class="err">Es sind noch keine Clubs angelegt. Bitte den ÖRV-Trainer kontaktieren.</p>'):''}
  <label>E-Mail<input id="em" type="email" required autocomplete="email"></label>
  <label>Passwort (mind. 6 Zeichen)<input id="pw" type="password" minlength="6" required autocomplete="${reg?'new-password':'current-password'}"></label>
  <button>${reg?'Konto erstellen':'Anmelden'}</button></form><p class="err" id="msg">${esc(msg)}</p>`;
  app.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{authMode=b.dataset.m;showAuth()});
  document.getElementById('af').onsubmit=async e=>{e.preventDefault();
   const email=document.getElementById('em').value.trim(),password=document.getElementById('pw').value;
-  const r=reg?await sb.auth.signUp({email,password,options:{data:{name:document.getElementById('nm').value.trim()}}}):await sb.auth.signInWithPassword({email,password});
+  const r=reg?await sb.auth.signUp({email,password,options:{data:{name:document.getElementById('nm').value.trim(),club:document.getElementById('cl').value}}}):await sb.auth.signInWithPassword({email,password});
   if(r.error)return showAuth(r.error.message);
   if(!r.data.session)return showAuth('Fast fertig: Bitte bestätige deine E-Mail über den Link, den wir dir geschickt haben, und melde dich dann an.');
   boot()};
 }
-async function boot(){
+async function boot(){await loadClubs();
  const {data:{user}}=await sb.auth.getUser();
  if(!user)return showAuth();
  const {data,error}=await sb.from('profiles').select('*').eq('id',user.id).single();
  if(error)return showAuth('Profil nicht gefunden: '+error.message);
- me=data;me.role==='rower'?rowerView():me.role==='referee'?refView():trainerView();
+ me=data;await loadClubs();if(!me.club&&['rower','club_trainer'].includes(me.role))return clubSetup();homeView();
 }
-const header=()=>{clearInterval(poll);try{wl&&wl.release()}catch(e){}return `<div class="head"><h1>${esc(me.name||'Hallo')} <span class="em" style="font-size:17px">${{admin:'Admin',trainer:'Trainer',referee:'Schiedsrichter'}[me.role]||'Ruderer/in'}</span></h1><button class="s" id="out">Abmelden</button></div>`};
+const header=()=>{clearInterval(poll);try{wl&&wl.release()}catch(e){}return `<div class="head"><h1>${esc(me.name||'Hallo')} <span class="em" style="font-size:17px">${{admin:'Admin',trainer:'ÖRV-Trainer',club_trainer:'Club-Trainer',referee:'Schiedsrichter'}[me.role]||'Ruderer/in'}${me.club?' · '+esc(me.club):''}</span></h1><button class="s" id="out">Abmelden</button></div>`};
 const bindOut=()=>document.getElementById('out').onclick=async()=>{await sb.auth.signOut();me=null;authMode='login';showAuth()};
 
 async function rowerView(){
- app.innerHTML=header()+'<div class="bar" style="margin-top:8px"><button id="cb">Rechner</button><button class="s" id="nb2">Nominierung</button></div><h2>Meine Zeiten</h2><div class="box w" id="res"><p class="em">Lädt …</p></div><h2>Entwicklung</h2><div class="box" id="hist"><p class="em">Lädt …</p></div><h2>Einreichen</h2><div class="box" id="ph"></div><h2>Veröffentlichte Ergebnisse</h2><div class="box w" id="pub"></div>';bindOut();document.getElementById('cb').onclick=calcView;document.getElementById('nb2').onclick=nomView;photoUI(document.getElementById('ph'));loadPub(document.getElementById('pub'));
+ app.innerHTML=header()+'<div class="bar" style="margin-top:8px"><button id="cb">Rechner</button><button class="s" id="nb2">Nominierung</button><button class="s" id="rb">Referenzzeiten</button></div><h2>Meine Zeiten</h2><div class="box w" id="res"><p class="em">Lädt …</p></div><h2>Entwicklung</h2><div class="box" id="hist"><p class="em">Lädt …</p></div><h2>Einreichen</h2><div class="box" id="ph"></div><h2>Veröffentlichte Ergebnisse</h2><div class="box w" id="pub"></div>';bindOut();document.getElementById('cb').onclick=calcView;document.getElementById('nb2').onclick=nomView;document.getElementById('rb').onclick=wrView;photoUI(document.getElementById('ph'));loadPub(document.getElementById('pub'));
  const [ev,mk,at]=await Promise.all([sb.from('events').select('*'),sb.from('marks').select('*').order('t'),sb.from('athletes').select('name,birth_year,gender,weight_class')]);
  const el=document.getElementById('res');
  if(ev.error||mk.error||at.error)return el.innerHTML=`<p class="err">${esc((ev.error||mk.error||at.error).message)}</p>`;
@@ -87,24 +87,26 @@ async function trainerView(){
  <h2>Teilnehmer</h2><div class="box">
  <label>Namen hier einfügen (ein Name pro Zeile, z. B. aus Excel kopiert)<textarea id="nl" rows="5" style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;box-sizing:border-box"></textarea></label>
  <div class="bar" style="margin-top:8px"><button id="nb">Liste übernehmen</button></div><p class="em" id="nmsg"></p><div id="sd"></div><div id="at"></div></div>
- ${me.role==='admin'?'<h2>Konten und Rollen</h2><div class="box" id="pp"><p class="em">Lädt …</p></div>':''}`;bindOut();
+ ${['admin','trainer'].includes(me.role)?'<h2>Konten, Clubs und Rollen</h2><div class="box" id="pp"><p class="em">Lädt …</p></div>':''}`;bindOut();
  document.getElementById('ef').onsubmit=async e=>{e.preventDefault();
   const {data:nv,error}=await sb.from('events').insert({title:document.getElementById('et').value.trim(),distance_m:+document.getElementById('ed').value||2000,boat_class:document.getElementById('eb').value,discipline:document.getElementById('edz').value||null}).select('id').single();
   if(!error){const al=await sb.from('athletes').select('id');if(al.data&&al.data.length)await sb.from('event_athletes').insert(al.data.map(x=>({event_id:nv.id,athlete_id:x.id})))}
   if(error)alert(error.message);document.getElementById('et').value='';loadEv()};
- document.getElementById('stb').onclick=statsView;document.getElementById('cb').onclick=calcView;document.getElementById('nb2').onclick=nomView;document.getElementById('lb2').onclick=listView;photoUI(document.getElementById('ph'));loadEv();loadAth();loadWr();if(me.role==='admin')loadPeople();
+ document.getElementById('stb').onclick=statsView;document.getElementById('cb').onclick=calcView;document.getElementById('nb2').onclick=nomView;document.getElementById('lb2').onclick=listView;photoUI(document.getElementById('ph'));loadEv();loadAth();loadWr();loadPeople();
 }
 async function loadEv(){
  const {data,error}=await sb.from('events').select('*').order('created_at',{ascending:false});
  document.getElementById('ev').innerHTML=error?`<p class="err">${esc(error.message)}</p>`:data.length?data.map(e=>`<div class="row"><span>${esc(e.title)}</span><span class="em">${e.distance_m} m</span><button class="s" onclick="eventView('${e.id}')">Öffnen</button></div>`).join(''):'<p class="em">Noch kein Test angelegt.</p>';
 }
 async function loadPeople(){
- const {data,error}=await sb.from('profiles').select('*').order('name');
- const el=document.getElementById('pp');
- if(error)return el.innerHTML=`<p class="err">${esc(error.message)}</p>`;
- el.innerHTML=data.map(p=>`<div class="row"><span>${esc(p.name||'(ohne Namen)')}</span>
- <select data-id="${p.id}"${p.id===me.id?' disabled':''}><option value="rower"${p.role==='rower'?' selected':''}>Ruderer/in</option><option value="trainer"${p.role==='trainer'?' selected':''}>Trainer</option><option value="referee"${p.role==='referee'?' selected':''}>Schiedsrichter</option><option value="admin"${p.role==='admin'?' selected':''}>Admin</option></select></div>`).join('');
- el.querySelectorAll('select').forEach(s=>s.onchange=async()=>{const {error}=await sb.from('profiles').update({role:s.value}).eq('id',s.dataset.id);if(error)alert(error.message)});
+ const el=document.getElementById('pp'),adm=me.role==='admin';
+ const [r,c]=await Promise.all([sb.from('profiles').select('*').order('name'),sb.from('clubs').select('name').order('name')]);
+ if(r.error)return el.innerHTML=`<p class="err">${esc(r.error.message)}</p>`;
+ CLUBS=(c.data||[]).map(x=>x.name);
+ const RL=[['rower','Ruderer/in'],['club_trainer','Club-Trainer'],['referee','Schiedsrichter'],['trainer','ÖRV-Trainer'],['admin','Admin']],mm=t=>document.getElementById('pm3').textContent=t||'';
+ el.innerHTML=`<div class="bar"><label>Neuer Club<input id="ncl" placeholder="Club-Name"></label><button class="s" id="nca">Club anlegen</button></div><p class="err" id="pm3"></p>`+r.data.map(p=>`<div class="row"><span>${esc(p.name||'(ohne Namen)')}</span><span style="display:flex;gap:6px"><select data-c="${p.id}"><option value="">Kein Club</option>${CLUBS.map(x=>`<option${p.club===x?' selected':''}>${esc(x)}</option>`).join('')}</select><select data-r="${p.id}"${adm&&p.id!==me.id?'':' disabled'}>${RL.map(([v,l])=>`<option value="${v}"${p.role===v?' selected':''}>${l}</option>`).join('')}</select></span></div>`).join('');
+ document.getElementById('nca').onclick=async()=>{const n=document.getElementById('ncl').value.trim();if(!n)return mm('Bitte einen Namen eingeben.');const q=await sb.from('clubs').insert({name:n});if(q.error)return mm(q.error.message);loadPeople()};
+ el.onchange=async e=>{const t=e.target,k=t.dataset.c?{club:t.value||null}:t.dataset.r?{role:t.value}:null;if(!k)return;const q=await sb.from('profiles').update(k).eq('id',t.dataset.c||t.dataset.r);mm(q.error?q.error.message:'✓ Gespeichert')};
 }
 let poll=null,off=0,wl=null;
 const T=t=>Date.parse(t);
@@ -121,10 +123,10 @@ async function eventView(id){
  try{mode=localStorage.getItem('mode')||'all'}catch(e){}
  if(me.role==='referee'&&mode==='all')mode='start';
  app.innerHTML=header()+`<button class="s" id="bk">Zurück</button><h2>${esc(ev.title)} <span class="em" style="font-size:17px" id="cnt"></span></h2>
- <div class="bar"><label>Meine Aufgabe auf diesem Gerät<select id="md">${me.role==='referee'?'':'<option value="all">Trainer: alles</option>'}<option value="start">Nur Start</option><option value="lap">Nur Zwischenzeit</option><option value="fin">Nur Ziel</option></select></label>
+ <div class="bar"><label>Meine Aufgabe auf diesem Gerät<select id="md">${me.role==='referee'?'':'<option value="all">ÖRV-Trainer: alles</option>'}<option value="start">Nur Start</option><option value="lap">Nur Zwischenzeit</option><option value="fin">Nur Ziel</option></select></label>
  <label class="adm">Distanz (m)<input id="dd" type="number" value="${ev.distance_m}" style="width:100px"></label>
  <label class="adm">Abschnitt (m)<input id="ss" type="number" value="${ev.section_m}" style="width:100px"></label>
- <button class="s adm" id="tp">Teilnehmer ändern</button><button id="all">Alle starten</button></div>
+ <button class="s adm" id="tp">Teilnehmer ändern</button><button class="s adm" id="pub1"></button><button class="s adm" id="pub2"></button><button id="all">Alle starten</button></div>
  <div class="adm"><div class="box" id="pl" style="display:none"><div class="bar"><label>Suchen<input id="sq" placeholder="Name"></label><button class="s" id="pa">Alle dabei</button><button class="s" id="pn">Niemand dabei</button></div><div id="pb"></div></div></div>
  <p class="err" id="msg"></p><div id="lst"></div>
  <h2>Ergebnisse</h2><div class="bar"><button class="s" id="so">Sortierung: Zeit</button></div><div class="box w"><table id="tb"></table></div>
@@ -190,6 +192,8 @@ async function eventView(id){
  $('pa').onclick=async()=>{AL.forEach(x=>part.add(x.id));draw();drawPl();await sb.from('event_athletes').upsert(AL.map(x=>({event_id:id,athlete_id:x.id})))};
  $('pn').onclick=async()=>{part.clear();draw();drawPl();await sb.from('event_athletes').delete().eq('event_id',id)};
  $('bk').onclick=me.role==='referee'?refView:trainerView;
+ const tg=(bid,k,on,off)=>{const b=$(bid),sh=()=>b.textContent=ev[k]?on:off;sh();b.onclick=async()=>{const r=await sb.from('events').update({[k]:!ev[k]}).eq('id',id);if(r.error)return msg(r.error.message);ev[k]=!ev[k];sh();msg('✓ Gespeichert',true)}};
+ tg('pub1','published','Schiedsrichter-Freigabe: AN','Schiedsrichter-Freigabe: AUS');tg('pub2','upload_open','Upload für Ruderer: OFFEN','Upload für Ruderer: GESPERRT');
  $('cp').onclick=async()=>{const t=[...$('tb').rows].map(tr=>[...tr.cells].map(c=>c.textContent).join('\t')).join('\n');
   try{await navigator.clipboard.writeText(t);msg('Kopiert. Jetzt in Excel einfügen.')}catch(e){msg('Kopieren nicht möglich.')}};
  $('csv').onclick=()=>{const t=[...$('tb').rows].map(tr=>[...tr.cells].map(c=>'"'+c.textContent.replace(/"/g,'""')+'"').join(';')).join('\r\n');
@@ -201,15 +205,16 @@ async function eventView(id){
 }
 const BOATS=['Erg','1x','2-','2x','4-','4x','8+'],ACS=['U17','U19','U23','Elite'];
 const ageClass=(by,y)=>{if(!by)return '';const a=y-by;return a<=16?'U17':a<=18?'U19':a<=22?'U23':'Elite'};
-const prof=x=>[x.birth_year?ageClass(x.birth_year,new Date().getFullYear())+' ('+x.birth_year+')':'',x.gender,x.weight_class==='lw'?'Leichtgewicht':''].filter(Boolean).join(' · ')||'Stammdaten fehlen';
+const prof=x=>[x.birth_year?ageClass(x.birth_year,new Date().getFullYear())+' ('+x.birth_year+')':'',x.gender,x.weight_class==='lw'?'Leichtgewicht':'',x.club||''].filter(Boolean).join(' · ')||'Stammdaten fehlen';
 const parseT=v=>{const m=String(v).trim().replace('.',',').match(/^(?:(\d+):)?(\d{1,2})(?:,(\d{1,3}))?$/);return m?((+(m[1]||0))*60+ +m[2])*1000+Math.round(+('0.'+(m[3]||'0'))*1000):null};
 function editAth(id){const x=ATH.find(a=>a.id===id),d=document.getElementById('sd');
  d.innerHTML=`<div class="box"><b>${esc(x.name)}</b><div class="bar" style="margin-top:8px"><label>Geburtsjahr<input id="sby" type="number" value="${x.birth_year||''}" style="width:100px"></label>
  <label>Geschlecht<select id="sg"><option value="">–</option><option value="m"${x.gender==='m'?' selected':''}>m</option><option value="w"${x.gender==='w'?' selected':''}>w</option></select></label>
  <label>Gewichtsklasse<select id="sw"><option value="open">Offen</option><option value="lw"${x.weight_class==='lw'?' selected':''}>Leichtgewicht</option></select></label>
+ <label>Club<select id="scl"><option value="">–</option>${CLUBS.map(c=>`<option${x.club===c?' selected':''}>${esc(c)}</option>`).join('')}</select></label>
  <button id="ssv">Speichern</button><button class="s" id="scn">Abbrechen</button></div></div>`;
  document.getElementById('scn').onclick=()=>d.innerHTML='';
- document.getElementById('ssv').onclick=async()=>{const r=await sb.from('athletes').update({birth_year:+document.getElementById('sby').value||null,gender:document.getElementById('sg').value||null,weight_class:document.getElementById('sw').value}).eq('id',id);if(r.error)return alert(r.error.message);d.innerHTML='';loadAth()}}
+ document.getElementById('ssv').onclick=async()=>{const r=await sb.from('athletes').update({birth_year:+document.getElementById('sby').value||null,gender:document.getElementById('sg').value||null,weight_class:document.getElementById('sw').value,club:document.getElementById('scl').value||null}).eq('id',id);if(r.error)return alert(r.error.message);d.innerHTML='';loadAth()}}
 async function loadWr(){
  const r=await sb.from('world_records').select('*').order('boat_class').order('age_class'),el=document.getElementById('wr');
  if(r.error)return el.innerHTML=`<p class="err">${esc(r.error.message)}</p>`;
@@ -237,6 +242,11 @@ async function loadStats(){
   const reps=repsOf(mk[k].sort((x,y)=>T(x.t)-T(y.t))).filter(r=>r.fin!=null);if(!reps.length)continue;
   const boat=bo[k]||e.boat_class,ac=ageClass(a.birth_year,new Date(e.created_at).getFullYear()),w=findWr(W,ac,a.gender,a.weight_class||'open',boat,e.distance_m);
   R.push({e,a,fin:Math.min(...reps.map(r=>r.fin)),boat,ac,wr:w?w.record_ms:null,wl:w&&w.age_class!==ac?w.age_class:'',wrE:(z=>z?z.record_ms:null)(findWr(W,'Elite',a.gender,a.weight_class||'open',boat,e.distance_m)),date:T(e.created_at)})}
+ const SB=await fetchAll('submissions','event_id,athlete_id,rows,status',['id']);
+ SB.filter(x=>x.status==='veröffentlicht'&&x.event_id&&x.athlete_id).forEach(x=>(x.rows||[]).forEach(row=>{const ms=ptime(row.time),e=eM[x.event_id],a=aM[x.athlete_id];if(!ms||!e||!a||DUR[e.discipline])return;
+  const boat=row.boat||bo[x.event_id+'|'+x.athlete_id]||e.boat_class,ac=ageClass(a.birth_year,new Date(e.created_at).getFullYear()),w=findWr(W,ac,a.gender,a.weight_class||'open',boat,e.distance_m),ex=R.find(z=>z.e.id===e.id&&z.a.id===a.id);
+  if(ex){if(ms<ex.fin)ex.fin=ms;return}
+  R.push({e,a,fin:ms,boat,ac,wr:w?w.record_ms:null,wl:w&&w.age_class!==ac?w.age_class:'',wrE:(z=>z?z.record_ms:null)(findWr(W,'Elite',a.gender,a.weight_class||'open',boat,e.distance_m)),date:T(e.created_at)})}));
  return {D:{E,A,EA,M,W},R}}
 const pc=v=>v.toFixed(1).replace('.',',')+' %';
 function barSvg(rows){
@@ -263,7 +273,7 @@ function histHtml(S,aid){
 async function loadHist(el){try{const S=await loadStats(),a=S.D.A[0];el.innerHTML=a?histHtml(S,a.id):'<p class="em">Noch keine Daten.</p>'}catch(e){el.innerHTML=`<p class="err">${esc(e.message)}</p>`}}
 async function statsView(){
  app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Auswertung</h2><div id="st"><p class="em">Lädt …</p></div>';bindOut();
- document.getElementById('bk').onclick=trainerView;
+ document.getElementById('bk').onclick=homeView;
  const $=i=>document.getElementById(i);let S;
  try{S=await loadStats()}catch(e){return $('st').innerHTML=`<p class="err">${esc(e.message)}</p>`}
  const evs=[...new Map(S.R.map(r=>[r.e.id,r.e])).values()].filter(e=>!F.dz||e.discipline===F.dz).sort((a,b)=>T(b.created_at)-T(a.created_at));
@@ -307,18 +317,30 @@ async function statsView(){
 }
 const shrink=file=>new Promise((ok,no)=>{const i=new Image();i.onload=()=>{const k=Math.min(1,1600/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);c.toBlob(b=>b?ok(b):no(new Error('Bild konnte nicht verarbeitet werden')),'image/jpeg',.82)};i.onerror=()=>no(new Error('Bild nicht lesbar'));i.src=URL.createObjectURL(file)});
 async function photoUI(el){
- const tr=me.role!=='rower',$=i=>document.getElementById(i);
- const [ev,at]=await Promise.all([sb.from('events').select('id,title').order('created_at',{ascending:false}),sb.from('athletes').select('id,name').order('name')]);
- const ATs=at.data||[];
- el.innerHTML=`<p class="em">Foto aufnehmen (optional), Werte prüfen oder selbst eintragen, dann einreichen. Der Trainer kontrolliert alles, bevor etwas veröffentlicht wird.</p>
- <div class="bar"><label>Test<select id="ps"><option value="">– wählen –</option>${(ev.data||[]).map(e=>`<option value="${e.id}">${esc(e.title)}</option>`).join('')}</select></label>${tr?`<label>Person<select id="pa"><option value="">– wählen –</option>${ATs.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></label>`:''}</div>
+ const tr=me.role!=='rower',isOT=['trainer','admin'].includes(me.role),$=i=>document.getElementById(i);
+ const [ev,at]=await Promise.all([sb.from('events').select('id,title,discipline,distance_m,upload_open').order('created_at',{ascending:false}),sb.from('athletes').select('id,name').order('name')]);
+ const ATs=at.data||[],EV=(ev.data||[]).filter(e=>isOT||(e.upload_open&&['2k','6k','30min','60min'].includes(e.discipline))),evs=Object.fromEntries(EV.map(e=>[e.id,e]));
+ el.innerHTML=`${!isOT&&!EV.length?'<p class="em">Aktuell ist kein Upload-Fenster geöffnet. Der ÖRV-Trainer gibt Ergo-Tests für Einreichungen frei.</p>':''}<div id="pfm"${!isOT&&!EV.length?' style="display:none"':''}><p class="em">Foto aufnehmen (optional), Werte prüfen oder selbst eintragen, dann einreichen. Der Trainer kontrolliert alles, bevor etwas veröffentlicht wird.</p>
+ <div class="bar"><label>Test<select id="ps"><option value="">– wählen –</option>${EV.map(e=>`<option value="${e.id}">${esc(e.title)}</option>`).join('')}</select></label>${tr?`<label>Person<select id="pa"><option value="">– wählen –</option>${ATs.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></label>`:''}</div>
  <div class="bar"><input type="file" id="pf" accept="image/*" capture="environment" style="width:auto"><button class="s" id="pk">Foto auslesen (KI)</button></div>
  <div class="bar"><label>Zeit (m:ss,t)<input id="vt" placeholder="7:30,0" style="width:110px"></label><label>Split /500 m<input id="vs" placeholder="1:52,5" style="width:110px"></label><label>Watt<input id="vw" type="number" inputmode="numeric" style="width:90px"></label><label>Schläge/min<input id="vm" type="number" inputmode="numeric" style="width:90px"></label><label>Distanz (m)<input id="vd" type="number" inputmode="numeric" style="width:100px"></label><label>Datum<input id="vx" type="date" style="width:150px"></label><label>Boot<select id="vb"><option value="">–</option>${BOATS.map(b=>`<option>${b}</option>`).join('')}</select></label></div>
- <button id="pg">Einreichen</button><p class="em" id="pm"></p><div id="pl2"></div>`;
+ <button id="pg">Einreichen</button></div><p class="em" id="pm"></p><div id="pl2"></div>`;
  const m=(t,ok)=>{$('pm').textContent=t;$('pm').style.color=ok?'var(--acc)':t&&!ok?'var(--stop)':''};
  let path='',blob=null,extra=[];
  const ensureUpload=async()=>{const file=$('pf').files[0];if(!file||path)return;blob=await shrink(file);const {data:{session}}=await sb.auth.getSession();path=session.user.id+'/'+Date.now()+'.jpg';const up=await sb.storage.from('photos').upload(path,blob,{contentType:'image/jpeg'});if(up.error){path='';throw up.error}};
  $('pf').onchange=()=>{path='';extra=[]};
+ const lc=src=>{const e=evs[$('ps').value]||{},dur=DUR[e.discipline];let spl=null;
+  if(src==='s')spl=ptime($('vs').value);
+  else if(src==='w'){const W=+$('vw').value;spl=W>0?500000*Math.pow(2.8/W,1/3):null}
+  else if(dur){const d=+$('vd').value;spl=d>0?dur/(d/500):null}
+  else{const t=ptime($('vt').value),d=+$('vd').value||e.distance_m;spl=t&&d?t/d*500:null}
+  if(dur)$('vt').value=hms(dur);
+  if(!spl||!isFinite(spl))return;
+  if(src!=='s')$('vs').value=f(spl);
+  if(src!=='w')$('vw').value=Math.round(wattOf(spl));
+  const d=dur?+$('vd').value:(+$('vd').value||e.distance_m);if(!dur&&src!=='t'&&d)$('vt').value=hms(spl*d/500)};
+ $('ps').onchange=()=>{const e=evs[$('ps').value]||{};$('vd').value=DUR[e.discipline]?'':(e.distance_m||'');if(DUR[e.discipline])$('vt').value=hms(DUR[e.discipline]);lc('t')};
+ $('vt').oninput=()=>lc('t');$('vd').oninput=()=>lc('t');$('vs').oninput=()=>lc('s');$('vw').oninput=()=>lc('w');
  $('pk').onclick=async()=>{if(!$('pf').files[0])return m('Bitte zuerst ein Foto wählen.');
   try{m('Lade hoch …',true);await ensureUpload();m('Lese Werte aus …',true);
    const b64=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result.split(',')[1]);fr.readAsDataURL(blob)}),{data:{session}}=await sb.auth.getSession();
@@ -338,7 +360,11 @@ async function photoUI(el){
   if(w&&!(+w>0&&+w<2000))return m('Watt muss eine Zahl zwischen 1 und 2000 sein.');
   if(spm&&!(+spm>=10&&+spm<=60))return m('Schläge/min müssen zwischen 10 und 60 liegen.');
   if(d&&!(Number.isInteger(+d)&&+d>=100&&+d<=100000))return m('Distanz bitte in ganzen Metern eingeben.');
-  if(!tm&&!sp&&!w&&!$('pf').files[0])return m('Bitte Zeit, Split oder Watt eintragen oder ein Foto wählen.');
+  const e0=evs[v('ps')]||{},dur0=DUR[e0.discipline];
+  if(!isOT&&!$('pf').files[0]&&!path)return m('Das Nachweisfoto ist Pflicht.');
+  if(dur0&&!d)return m('Bitte die erreichte Distanz eintragen.');
+  if(!dur0&&!tm)return m('Bitte die Gesamtzeit eintragen.');
+  if(!sp&&!w)return m('Split oder Watt fehlt.');
   try{m('Speichere …',true);await ensureUpload();
    const name=(ATs.find(a=>a.id===aid)||{}).name||'';
    const row={name,time:tm||null,split:sp||null,watt:w||null,spm:spm||null,distance_m:d||null,date:v('vx')||new Date().toISOString().slice(0,10),boat:v('vb')||null};
@@ -346,8 +372,9 @@ async function photoUI(el){
    if(ins.error)throw ins.error;
    ['vt','vs','vw','vm','vd','vx'].forEach(i=>$(i).value='');$('pf').value='';path='';extra=[];
    m('✓ Eingereicht. Der Trainer prüft die Angaben, erst danach werden sie veröffentlicht.',true);mine()}catch(e){m('NICHT gespeichert: '+(/row-level security/.test(e.message)?'keine Berechtigung für diese Einreichung.':e.message))}};
- const mine=async()=>{if(tr)return loadSubs();const r=await sb.from('submissions').select('*,events(title)').eq('uploaded_by',me.id).order('created_at',{ascending:false});
-  $('pl2').innerHTML=r.error?`<p class="err">${esc(r.error.message)}</p>`:'<b>Meine Einreichungen</b>'+r.data.map(s=>`<div class="row" style="flex-direction:column;align-items:flex-start"><b>${new Date(s.created_at).toLocaleString('de-AT')} · ${esc(s.events?.title||'–')} · ${s.status}</b><span class="em">${(s.rows||[]).map(x=>esc((x.time||'–')+' (Split '+(x.split||'–')+')')).join('<br>')||'Keine Werte'}</span></div>`).join('')};
+ const mine=async()=>{if(isOT)return loadSubs();const r=await sb.from('submissions').select('*,events(title)').eq('uploaded_by',me.id).order('created_at',{ascending:false});
+  $('pl2').innerHTML=r.error?`<p class="err">${esc(r.error.message)}</p>`:'<b>Meine Einreichungen</b>'+r.data.map(s=>`<div class="row" style="flex-direction:column;align-items:flex-start"><b>${new Date(s.created_at).toLocaleString('de-AT')} · ${esc(s.events?.title||'–')} · ${s.status}</b><span class="em">${(s.rows||[]).map(x=>esc((x.time||'–')+' (Split '+(x.split||'–')+')')).join('<br>')||'Keine Werte'}</span>${s.photo_path?`<button class="s" data-ph="${s.photo_path}">Foto ansehen</button>`:''}</div>`).join('');
+  $('pl2').onclick=async e=>{const b=e.target.closest('[data-ph]');if(!b)return;const u=await sb.storage.from('photos').createSignedUrl(b.dataset.ph,600);if(u.data)b.insertAdjacentHTML('afterend',`<img src="${u.data.signedUrl}" alt="Foto" style="max-width:100%;border-radius:8px;margin-top:6px">`);b.remove()}};
  mine();
 }
 let SUBG='status';
@@ -400,7 +427,7 @@ function calcView(){
  <p class="em">Watt = 2,80 ÷ (Sekunden pro Meter)³ (Formel von Concept2, gilt fürs Ergometer).</p>`;
  bindOut();
  const $=i=>document.getElementById(i);
- $('bk').onclick=me.role==='rower'?rowerView:me.role==='referee'?refView:trainerView;
+ $('bk').onclick=homeView;
  const upd=src=>{const d=+$('cd').value||0;let sp=null;
   if(src==='s')sp=ptime($('cs').value);
   else if(src==='w'){const W=+String($('cw').value).replace(',','.');sp=W>0?500000*Math.pow(2.8/W,1/3):null}
@@ -433,12 +460,12 @@ function refView(){
   el.innerHTML=r.error?`<p class="err">${esc(r.error.message)}</p>`:r.data.length?r.data.map(e=>`<div class="row"><span>${esc(e.title)}</span><button class="s" onclick="eventView('${e.id}')">Öffnen</button></div>`).join(''):'<p class="em">Keine Tests vorhanden.</p>'})}
 async function nomView(){
  app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Nominierungs-Check 2027</h2><div id="nm"><p class="em">Lädt …</p></div>';bindOut();
- const $=i=>document.getElementById(i),tr=me.role!=='rower';
- $('bk').onclick=tr?trainerView:rowerView;
+ const $=i=>document.getElementById(i),tr=['trainer','admin'].includes(me.role);
+ $('bk').onclick=homeView;
  let S,FL;
  try{S=await loadStats();S.TR=await fetchAll('time_results','*',['event_id','athlete_id']);FL=Object.fromEntries((await fetchAll('athlete_formal','*',['athlete_id'])).map(x=>[x.athlete_id,x.flags||{}]))}catch(e){return $('nm').innerHTML=`<p class="err">${esc(e.message)}</p>`}
- let pk=PROGS[0].k,sel=tr?null:(S.D.A[0]||{}).id;
- if(!tr&&S.D.A[0]){const c=ageClass(S.D.A[0].birth_year,2027);pk=(PROGS.find(p=>p.ac===c)||PROGS[0]).k}
+ let pk=PROGS[0].k,sel=me.role==='rower'?(S.D.A[0]||{}).id:null;
+ if(me.role==='rower'&&S.D.A[0]){const c=ageClass(S.D.A[0].birth_year,2027);pk=(PROGS.find(p=>p.ac===c)||PROGS[0]).k}
  $('nm').innerHTML=`<div class="bar"><label>Programm<select id="np">${PROGS.map(p=>`<option value="${p.k}"${p.k===pk?' selected':''}>${esc(p.l)}</option>`).join('')}</select></label></div><details class="box"><summary><b>Leitfaden anzeigen</b></summary><div id="pi" class="em" style="margin-top:8px"></div></details>
  <div class="box w"><table id="nt"></table></div><div id="fd"></div>
  <p class="em">Orientierung auf Basis der ÖRV-Leitfäden 2027 und der Tests in dieser App seit 28.09.2026. Die Nominierung erfolgt durch den Verband bzw. UNISPORT AUSTRIA, es gibt keinen Anspruch auf Nominierung. Wildcards sind möglich.</p>`;
@@ -469,14 +496,14 @@ function nomRows(S,FL,P){const rows=[];
    const we=bestE&&g?findWr(S.D.W,ac,g,a.weight_class||'open','Erg',2000):null;rows.push({a,ac,bestE,lim,wat,miss,fm,ergPct:we?we.record_ms/bestE*100:null})});
  return rows}
 async function listView(){
- app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Athletenliste (nur Lesen)</h2><div class="bar"><button class="s" id="tn">Nominierung einblenden</button></div><div class="box w"><table id="lt"><tr><td class="em">Lädt …</td></tr></table></div><p class="em">Reine Leseansicht: Hier kann nichts geändert oder gelöscht werden. Bearbeiten geht unter „Teilnehmer“.</p>';bindOut();
- const $=i=>document.getElementById(i);$('bk').onclick=trainerView;
+ app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Athletenliste (nur Lesen)</h2><div class="bar"><label>Altersklasse<select id="lfa"><option value="">Alle</option><option>U17</option><option>U19</option><option>U23</option><option>Elite</option></select></label><label>Geschlecht<select id="lfg"><option value="">Alle</option><option value="w">Frau</option><option value="m">Mann</option></select></label><button class="s" id="tn">Nominierung einblenden</button></div><div class="box w"><table id="lt"><tr><td class="em">Lädt …</td></tr></table></div><p class="em">Reine Leseansicht: Hier kann nichts geändert oder gelöscht werden. Bearbeiten geht unter „Teilnehmer“.</p>';bindOut();
+ const $=i=>document.getElementById(i);$('bk').onclick=homeView;
  let S,FL,sn=false;
  try{S=await loadStats();S.TR=await fetchAll('time_results','*',['event_id','athlete_id']);FL=Object.fromEntries((await fetchAll('athlete_formal','*',['athlete_id'])).map(x=>[x.athlete_id,x.flags||{}]))}catch(e){return $('lt').innerHTML=`<tr><td class="err">${esc(e.message)}</td></tr>`}
  const per={};PROGS.forEach(P=>nomRows(S,FL,P).forEach(r=>(per[r.a.id]=per[r.a.id]||[]).push({P,r})));
  const draw=()=>{$('tn').textContent=sn?'Nominierung ausblenden':'Nominierung einblenden';
-  $('lt').innerHTML='<tr><th>Name</th><th>AK 2027</th><th>m/w</th><th>Gewicht</th>'+(sn?'<th>Nominierungs-Richtwerte</th>':'')+'</tr>'+[...S.D.A].sort((x,y)=>x.name.localeCompare(y.name)).map(a=>`<tr><td>${esc(a.name)}</td><td>${a.birth_year?ageClass(a.birth_year,2027):'–'}</td><td>${a.gender||'–'}</td><td>${a.weight_class==='lw'?'Leicht':'Offen'}</td>${sn?`<td style="white-space:normal;min-width:260px">${(per[a.id]||[]).map(({P,r})=>`<div>${esc(P.l)}: ${r.miss.length?'<span style="color:var(--stop)">offen: '+esc(r.miss.join(' · '))+'</span>':'<span style="color:var(--acc)">erfüllt ✓</span>'}</div>`).join('')||'<span class="em">Geburtsjahr fehlt oder kein passendes Programm</span>'}</td>`:''}</tr>`).join('')};
- $('tn').onclick=()=>{sn=!sn;draw()};draw();
+  $('lt').innerHTML='<tr><th>Name</th><th>AK 2027</th><th>m/w</th><th>Gewicht</th><th>Club</th><th>WR 2k Ergo (Altersklasse)</th>'+(sn?'<th>Nominierungs-Richtwerte</th>':'')+'</tr>'+[...S.D.A].filter(a=>(!$('lfa').value||(a.birth_year&&ageClass(a.birth_year,2027)===$('lfa').value))&&(!$('lfg').value||a.gender===$('lfg').value)).sort((x,y)=>x.name.localeCompare(y.name)).map(a=>`<tr><td>${esc(a.name)}</td><td>${a.birth_year?ageClass(a.birth_year,2027):'–'}</td><td>${a.gender||'–'}</td><td>${a.weight_class==='lw'?'Leicht':'Offen'}</td><td>${esc(a.club||'–')}</td><td>${(w=>w?f(w.record_ms):'<span class="em">fehlt</span>')(a.birth_year&&a.gender?findWr(S.D.W,ageClass(a.birth_year,2027),a.gender,a.weight_class||'open','Erg',2000):null)}</td>${sn?`<td style="white-space:normal;min-width:260px">${(per[a.id]||[]).map(({P,r})=>`<div>${esc(P.l)}: ${r.miss.length?'<span style="color:var(--stop)">offen: '+esc(r.miss.join(' · '))+'</span>':'<span style="color:var(--acc)">erfüllt ✓</span>'}</div>`).join('')||'<span class="em">Geburtsjahr fehlt oder kein passendes Programm</span>'}</td>`:''}</tr>`).join('')};
+ $('tn').onclick=()=>{sn=!sn;draw()};$('lfa').onchange=draw;$('lfg').onchange=draw;draw();
 }
 const DUR={'30min':1800000,'60min':3600000};
 async function distView(ev,AL,part){
@@ -494,6 +521,18 @@ async function distView(ev,AL,part){
   if(r.error){msg('NICHT gespeichert: '+(/row-level security/.test(r.error.message)?'keine Berechtigung.':r.error.message));return}
   const c=calc(d);$('s_'+id).textContent=f(c.sp);$('w_'+id).textContent=c.w.toFixed(0);msg('✓ Gespeichert: '+nm+' '+d+' m, Ø '+f(c.sp)+' /500 m, '+c.w.toFixed(0)+' W',true)};
 }
+let CLUBS=[];
+async function loadClubs(){const r=await sb.from('clubs').select('name').order('name');CLUBS=(r.data||[]).map(x=>x.name)}
+function homeView(){({rower:rowerView,referee:refView,club_trainer:clubView}[me.role]||trainerView)()}
+function clubSetup(){app.innerHTML=header()+`<h2>Club wählen</h2><p class="em">Bitte wähle einmalig deinen Club. Danach können nur der ÖRV-Trainer oder der Admin ihn ändern.</p><form id="cf"><label>Club<select id="cs" required><option value="">– wählen –</option>${CLUBS.map(c=>`<option>${esc(c)}</option>`).join('')}</select></label><button>Speichern</button></form><p class="err" id="cm2">${CLUBS.length?'':'Es sind noch keine Clubs angelegt. Bitte den ÖRV-Trainer kontaktieren.'}</p>`;bindOut();
+ document.getElementById('cf').onsubmit=async e=>{e.preventDefault();const c=document.getElementById('cs').value;if(!c)return;const r=await sb.from('profiles').update({club:c}).eq('id',me.id);if(r.error)return document.getElementById('cm2').textContent=r.error.message;me.club=c;homeView()}}
+function clubView(){
+ app.innerHTML=header()+`<h2>Club ${esc(me.club||'')}</h2><div class="bar"><button id="c1">Auswertung &amp; Club-Ranking</button><button class="s" id="c2">Nominierungs-Check</button><button class="s" id="c3">Athletenliste</button><button class="s" id="c4">Referenzzeiten</button><button class="s" id="c5">Rechner</button></div><h2>Ergebnis eintragen</h2><div class="box" id="ph"></div>`;bindOut();
+ const $=i=>document.getElementById(i);$('c1').onclick=statsView;$('c2').onclick=nomView;$('c3').onclick=listView;$('c4').onclick=wrView;$('c5').onclick=calcView;photoUI($('ph'))}
+async function wrView(){
+ app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Referenzzeiten (Weltrekorde)</h2><div class="box w" id="wt"><p class="em">Lädt …</p></div>';bindOut();document.getElementById('bk').onclick=homeView;
+ const r=await sb.from('world_records').select('*').order('boat_class').order('age_class'),el=document.getElementById('wt');
+ el.innerHTML=r.error?`<p class="err">${esc(r.error.message)}</p>`:r.data.length?'<table><tr><th>Altersklasse</th><th>m/w</th><th>Gewicht</th><th>Boot</th><th>Distanz</th><th>Zeit</th><th>Quelle</th></tr>'+r.data.map(w=>`<tr><td>${w.age_class}</td><td>${w.gender}</td><td>${w.weight_class==='lw'?'Leicht':'Offen'}</td><td>${w.boat_class}</td><td>${w.distance_m} m</td><td>${f(w.record_ms)}</td><td>${esc(w.note||'')}</td></tr>`).join('')+'</table>':'<p class="em">Noch keine Referenzzeiten eingetragen.</p>'}
 let ATH=[];
 async function loadAth(){
  const [a,p]=await Promise.all([sb.from('athletes').select('*').order('name'),sb.from('profiles').select('id,name').order('name')]);
