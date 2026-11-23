@@ -79,9 +79,9 @@ async function rowerView(){
  loadHist(document.getElementById('hist'));
 }
 async function trainerView(){
- app.innerHTML=header()+`<div class="bar" style="margin-top:8px"><button id="stb">Auswertung &amp; Vergleich</button><button class="s" id="cb">Rechner</button><button class="s" id="nb2">Nominierungs-Check</button></div><h2>Tests</h2><div class="box"><form id="ef" class="bar" style="margin:0">
+ app.innerHTML=header()+`<div class="bar" style="margin-top:8px"><button id="stb">Auswertung &amp; Vergleich</button><button class="s" id="cb">Rechner</button><button class="s" id="nb2">Nominierungs-Check</button><button class="s" id="lb2">Athletenliste</button></div><h2>Tests</h2><div class="box"><form id="ef" class="bar" style="margin:0">
  <label>Name des Tests<input id="et" required placeholder="z. B. 2000 m Test"></label>
- <label>Distanz (m)<input id="ed" type="number" value="2000" min="1" style="width:100px"></label><label>Disziplin<select id="edz"><option value="">–</option><option value="2k">2000 m Ergo</option><option value="6k">6000 m Ergo</option><option value="30min">30-Min-Test</option><option value="lang">Langstrecke Wasser</option><option value="klein">Kleinboot</option><option value="regatta">Regatta</option></select></label><label>Boot<select id="eb">${BOATS.map(b=>`<option>${b}</option>`).join('')}</select></label><button>Anlegen</button></form><div id="ev"></div></div>
+ <label>Distanz (m)<input id="ed" type="number" value="2000" min="1" style="width:100px"></label><label>Disziplin<select id="edz"><option value="">–</option><option value="2k">2000 m Ergo</option><option value="6k">6000 m Ergo</option><option value="30min">30-Min-Test</option><option value="60min">1-Stunden-Test</option><option value="lang">Langstrecke Wasser</option><option value="klein">Kleinboot</option><option value="regatta">Regatta</option></select></label><label>Boot<select id="eb">${BOATS.map(b=>`<option>${b}</option>`).join('')}</select></label><button>Anlegen</button></form><div id="ev"></div></div>
  <h2>Fotos &amp; Einreichungen</h2><div class="box" id="ph"></div><div class="box" id="sv"></div>
  <details class="box"><summary><b>Referenzzeiten (Weltrekorde)</b></summary><div id="wr"></div></details>
  <h2>Teilnehmer</h2><div class="box">
@@ -92,7 +92,7 @@ async function trainerView(){
   const {data:nv,error}=await sb.from('events').insert({title:document.getElementById('et').value.trim(),distance_m:+document.getElementById('ed').value||2000,boat_class:document.getElementById('eb').value,discipline:document.getElementById('edz').value||null}).select('id').single();
   if(!error){const al=await sb.from('athletes').select('id');if(al.data&&al.data.length)await sb.from('event_athletes').insert(al.data.map(x=>({event_id:nv.id,athlete_id:x.id})))}
   if(error)alert(error.message);document.getElementById('et').value='';loadEv()};
- document.getElementById('stb').onclick=statsView;document.getElementById('cb').onclick=calcView;document.getElementById('nb2').onclick=nomView;photoUI(document.getElementById('ph'));loadEv();loadAth();loadWr();if(me.role==='admin')loadPeople();
+ document.getElementById('stb').onclick=statsView;document.getElementById('cb').onclick=calcView;document.getElementById('nb2').onclick=nomView;document.getElementById('lb2').onclick=listView;photoUI(document.getElementById('ph'));loadEv();loadAth();loadWr();if(me.role==='admin')loadPeople();
 }
 async function loadEv(){
  const {data,error}=await sb.from('events').select('*').order('created_at',{ascending:false});
@@ -116,6 +116,7 @@ function secsOf(p,ev){const m=p.laps.concat(p.fin!=null?[p.fin]:[]);return m.map
 async function eventView(id){
  const [a,b,c]=await Promise.all([sb.from('events').select('*').eq('id',id).single(),sb.from('athletes').select('id,name,birth_year,gender,weight_class').order('name'),sb.from('event_athletes').select('athlete_id,boat_class').eq('event_id',id)]);
  if(a.error)return alert(a.error.message);
+ if(['30min','60min'].includes(a.data.discipline))return distView(a.data,b.data||[],new Set((c.data||[]).map(x=>x.athlete_id)));
  let ev=a.data,AL=b.data||[],part=new Set((c.data||[]).map(x=>x.athlete_id)),bc=Object.fromEntries((c.data||[]).map(x=>[x.athlete_id,x.boat_class])),WRs=[],sortWr=false,marks=[],mode='all',clockOk=false;
  try{mode=localStorage.getItem('mode')||'all'}catch(e){}
  if(me.role==='referee'&&mode==='all')mode='start';
@@ -130,16 +131,17 @@ async function eventView(id){
  <div class="bar adm"><button id="cp" class="s">Tabelle kopieren</button><button id="csv" class="s">Als Excel/CSV laden</button>${me.role==='admin'?'<button id="dl" class="s">Test löschen</button>':''}</div>`;
  bindOut();
  sb.from('world_records').select('*').then(r=>{WRs=r.data||[];draw()});
- const $=x=>document.getElementById(x),msg=t=>$('msg').textContent=t||'';
+ const $=x=>document.getElementById(x),msg=(t,ok)=>{$('msg').textContent=t||'';$('msg').style.color=ok?'var(--acc)':''};
  const ps=()=>AL.filter(x=>part.has(x.id));
  const rp=r=>repsOf(marks.filter(m=>m.rider_id===r.id));
  const stamp=()=>new Date(Date.now()+off).toISOString();
  const sync=async()=>{const t0=performance.now(),d=Date.now();const r=await sb.rpc('server_now');if(r.error||!r.data)return;off=T(r.data)-(d+(performance.now()-t0)/2);clockOk=true};
- const add=async rows=>{const t=stamp();
+ const last={},KL={start:'Start',lap:'Zwischenzeit',fin:'Ziel'};
+ const add=async rows=>{const nw=Date.now();rows=rows.filter(x=>!(last[x.rider_id]&&nw-last[x.rider_id]<1500));if(!rows.length){msg('Doppeltippen ignoriert.');return}rows.forEach(x=>last[x.rider_id]=nw);const t=stamp();
   marks=marks.concat(rows.map((r,i)=>({...r,t,id:'tmp'+Date.now()+i}))).sort((x,y)=>T(x.t)-T(y.t));draw();
   try{navigator.vibrate&&navigator.vibrate(30)}catch(e){}
   const r=await sb.from('marks').insert(clockOk?rows.map(x=>({...x,t})):rows);
-  if(r.error)msg('Speichern fehlgeschlagen: '+r.error.message);else msg();
+  if(r.error)msg('NICHT gespeichert: '+(/row-level security/.test(r.error.message)?'keine Berechtigung (Trainer, Admin oder Schiedsrichter nötig).':r.error.message)+' Bitte erneut versuchen.');else msg('✓ Gespeichert: '+rows.map(x=>{const a=AL.find(z=>z.id===x.rider_id);return (a?a.name:'?')+' ('+KL[x.kind]+')'}).join(', '),true);
   await load()};
  const drawPl=()=>{const q=$('sq').value.trim().toLowerCase();
   $('pb').innerHTML=AL.filter(x=>x.name.toLowerCase().includes(q)).map(x=>`<label class="row" style="flex-direction:row;color:var(--ink);font-size:17px"><span>${esc(x.name)}</span><input type="checkbox" data-p="${x.id}"${part.has(x.id)?' checked':''}></label>`).join('')||'<p class="em">Keine Treffer.</p>'};
@@ -176,9 +178,9 @@ async function eventView(id){
   else add([{event_id:id,rider_id:r,kind:a}])};
  $('lst').onchange=async e=>{const q=e.target.closest('[data-b]');if(!q)return;bc[q.dataset.b]=q.value;draw();await sb.from('event_athletes').update({boat_class:q.value}).eq('event_id',id).eq('athlete_id',q.dataset.b)};
  $('so').onclick=()=>{sortWr=!sortWr;$('so').textContent='Sortierung: '+(sortWr?'% WR':'Zeit');draw()};
- $('all').onclick=()=>{const rows=ps().filter(r=>{const rs=rp(r),l=rs[rs.length-1];return !l||l.fin!=null}).map(r=>({event_id:id,rider_id:r.id,kind:'start'}));if(rows.length)add(rows)};
+ $('all').onclick=()=>{const rows=ps().filter(r=>{const rs=rp(r),l=rs[rs.length-1];return !l||l.fin!=null}).map(r=>({event_id:id,rider_id:r.id,kind:'start'}));if(rows.length&&confirm(rows.length+' Personen jetzt gleichzeitig starten?'))add(rows)};
  $('md').onchange=()=>{mode=$('md').value;try{localStorage.setItem('mode',mode)}catch(e){}draw()};
- const upd=async()=>{ev.distance_m=+$('dd').value||2000;ev.section_m=+$('ss').value||500;await sb.from('events').update({distance_m:ev.distance_m,section_m:ev.section_m}).eq('id',id);draw()};
+ const upd=async()=>{const d=+$('dd').value,sc=+$('ss').value;if(!(Number.isInteger(d)&&d>=100&&d<=100000&&Number.isInteger(sc)&&sc>=50&&sc<=d)){msg('Distanz und Abschnitt müssen ganze Meter sein (Abschnitt höchstens so lang wie die Distanz).');return}ev.distance_m=d;ev.section_m=sc;await sb.from('events').update({distance_m:ev.distance_m,section_m:ev.section_m}).eq('id',id);draw()};
  $('dd').onchange=upd;$('ss').onchange=upd;
  $('tp').onclick=()=>{const p=$('pl');p.style.display=p.style.display==='none'?'block':'none';drawPl()};
  $('sq').oninput=drawPl;
@@ -223,7 +225,7 @@ async function loadWr(){
   if(q.error)document.getElementById('wm').textContent=q.error.message;else loadWr()};
  el.onclick=async e=>{const b=e.target.closest('[data-w]');if(!b||!confirm('Referenzzeit löschen?'))return;await sb.from('world_records').delete().eq('id',b.dataset.w);loadWr()};
 }
-const F={dz:'',ev:'',ac:'',g:'',bt:'',key:'time',dir:1,sel:null};
+const F={cmp:new Set(),dz:'',ev:'',ac:'',g:'',bt:'',key:'time',dir:1,sel:null};
 const findWr=(W,ac,g,w,b,d)=>{const m=k=>k.gender===g&&k.weight_class===w&&k.boat_class===b&&k.distance_m===d;return W.find(k=>m(k)&&k.age_class===ac)};
 async function fetchAll(t,sel,ord){let o=[],i=0;for(;;){let q=sb.from(t).select(sel);ord.forEach(c=>q=q.order(c));const r=await q.range(i,i+999);if(r.error)throw r.error;o=o.concat(r.data);if(r.data.length<1000)return o;i+=1000}}
 async function loadStats(){
@@ -254,8 +256,10 @@ function histHtml(S,aid){
  if(!mine.length)return '<p class="em">Noch keine Ergebnisse.</p>';
  const last=mine[mine.length-1],list=mine.filter(r=>r.e.distance_m===last.e.distance_m&&r.boat===last.boat);
  const pts=list.map(r=>({l:new Date(r.e.created_at).toLocaleDateString('de-AT',{day:'2-digit',month:'2-digit'}),y:r.fin}));
- const tr=[...list].reverse().map((r,i,a)=>`<tr><td>${new Date(r.e.created_at).toLocaleDateString('de-AT')}</td><td>${esc(r.e.title)}</td><td>${f(r.fin)}</td><td>${sp(r.fin,r.e.distance_m)}</td><td>${r.wr?pc(r.wr/r.fin*100):'–'}</td><td>${a[i+1]?dlt(r.fin-a[i+1].fin):'–'}</td></tr>`).join('');
- return `<p class="em">${esc(last.a.name)} · ${last.e.distance_m} m · ${last.boat} · oben = schneller</p>${lineSvg(pts,last.wr)}<div class="w"><table><tr><th>Datum</th><th>Test</th><th>Zeit</th><th>Split/500 m</th><th>% WR</th><th>Veränderung</th></tr>${tr}</table></div>`}
+ const pbt=(r,i,a)=>{const o=list.filter(z=>z!==r);if(!o.length)return '–';const d=r.fin-Math.min(...o.map(z=>z.fin)),x=(Math.abs(d)/1000).toFixed(1).replace('.',',');return `<span style="color:var(--${d<0?'acc':'stop'})">${d<0?'−':'+'}${x} s ${d<0?'schneller':'langsamer'} als PB</span>`};
+ const tr=[...list].reverse().map((r,i,a)=>`<tr><td>${new Date(r.e.created_at).toLocaleDateString('de-AT')}</td><td>${esc(r.e.title)}</td><td>${f(r.fin)}</td><td>${sp(r.fin,r.e.distance_m)}</td><td>${r.wr?pc(r.wr/r.fin*100):'–'}</td><td>${a[i+1]?dlt(r.fin-a[i+1].fin):'–'}</td><td>${pbt(r,i,a)}</td></tr>`).join('');
+ const gv=list.length>1?`<p><b>Gesamtverbesserung seit der ersten Messung:</b> ${dlt(list[list.length-1].fin-list[0].fin)} (${((list[0].fin-list[list.length-1].fin)/list[0].fin*100).toFixed(1).replace('.',',')} %)</p>`:'';
+ return `<p class="em">${esc(last.a.name)} · ${last.e.distance_m} m · ${last.boat} · oben = schneller</p>${gv}${lineSvg(pts,last.wr)}<div class="w"><table><tr><th>Datum</th><th>Test</th><th>Zeit</th><th>Split/500 m</th><th>% WR</th><th>Veränderung</th><th>zur PB</th></tr>${tr}</table></div>`}
 async function loadHist(el){try{const S=await loadStats(),a=S.D.A[0];el.innerHTML=a?histHtml(S,a.id):'<p class="em">Noch keine Daten.</p>'}catch(e){el.innerHTML=`<p class="err">${esc(e.message)}</p>`}}
 async function statsView(){
  app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Auswertung</h2><div id="st"><p class="em">Lädt …</p></div>';bindOut();
@@ -269,19 +273,19 @@ async function statsView(){
  const op=(a,sel)=>a.map(([v,l])=>`<option value="${v}"${v===sel?' selected':''}>${esc(l)}</option>`).join('');
  $('st').innerHTML=`<div class="bar">
  <label>Test<select id="fe">${op(evs.map(e=>[e.id,e.title+' · '+new Date(e.created_at).toLocaleDateString('de-AT')+' · '+e.distance_m+' m']),F.ev)}</select></label>
- <label>Disziplin<select id="fz">${op([['','Alle'],['2k','2000 m Ergo'],['6k','6000 m Ergo'],['30min','30-Min-Test'],['lang','Langstrecke Wasser'],['klein','Kleinboot'],['regatta','Regatta']],F.dz)}</select></label>
+ <label>Disziplin<select id="fz">${op([['','Alle'],['2k','2000 m Ergo'],['6k','6000 m Ergo'],['30min','30-Min-Test'],['60min','1-Stunden-Test'],['lang','Langstrecke Wasser'],['klein','Kleinboot'],['regatta','Regatta']],F.dz)}</select></label>
  <label>Altersklasse<select id="fa">${op([['','Alle'],...ACS.map(x=>[x,x])],F.ac)}</select></label>
  <label>Geschlecht<select id="fg">${op([['','Alle'],['m','männlich'],['w','weiblich']],F.g)}</select></label>
  <label>Bootsklasse<select id="fb">${op([['','Alle'],...BOATS.map(x=>[x,x])],F.bt)}</select></label>
  <label>Sortieren nach<select id="fk">${op([['time','Zeit'],['pct','% WR'],['name','Name'],['delta','Veränderung']],F.key)}</select></label>
  <button class="s" id="fd"></button></div>
- <h2 id="t1" style="margin-top:8px"></h2><div class="box"><div id="ch"></div></div><div class="box w"><table id="tt"></table></div>
+ <h2 id="t1" style="margin-top:8px"></h2><div class="box"><div id="ch"></div></div><div class="box w"><table id="tt"></table></div><h2>Auswahl-Vergleich</h2><div class="box" id="cmpb"></div>
  <div class="bar" style="margin-top:12px"><button class="s" id="xc">Tabelle kopieren</button><button class="s" id="xx">Excel (.xlsx)</button></div>
  <h2>Entwicklung</h2><div class="box" id="hist"><p class="em">Tippe in der Tabelle auf einen Namen.</p></div>`;
  const upd=()=>{
   let rows=S.R.filter(r=>r.e.id===F.ev&&(!F.ac||r.ac===F.ac)&&(!F.g||r.a.gender===F.g)&&(!F.bt||r.boat===F.bt));
-  const rk=[...rows].sort((x,y)=>x.fin-y.fin);
-  rows.forEach(r=>{r.pl=rk.indexOf(r)+1;r.pct=r.wr?r.wr/r.fin*100:null;
+  const rk=[...rows].sort((x,y)=>x.fin-y.fin),evRows=S.R.filter(z=>z.e.id===F.ev);
+  rows.forEach(r=>{r.akr=(g=>{const o=g.sort((x,y)=>x.fin-y.fin);return o.indexOf(r)+1+'/'+o.length})(evRows.filter(z=>z.ac===r.ac&&z.a.gender===r.a.gender&&z.boat===r.boat));r.pl=rk.indexOf(r)+1;r.pct=r.wr?r.wr/r.fin*100:null;
    const same=S.R.filter(z=>z.a.id===r.a.id&&z.e.distance_m===r.e.distance_m&&z.boat===r.boat),pv=same.filter(z=>z.date<r.date).sort((x,y)=>y.date-x.date)[0];
    r.prev=pv?pv.fin:null;r.dl=pv?r.fin-pv.fin:null;r.pb=Math.min(...same.map(z=>z.fin))});
   const kf={time:r=>r.fin,pct:r=>r.pct,name:r=>r.a.name,delta:r=>r.dl}[F.key];
@@ -289,11 +293,13 @@ async function statsView(){
   $('fd').textContent=F.dir===1?'↑ aufsteigend':'↓ absteigend';
   $('t1').textContent=evs.find(e=>e.id===F.ev).title+' · '+rows.length+' Ergebnisse';
   $('ch').innerHTML=barSvg(rows);
-  $('tt').innerHTML='<tr><th>Platz</th><th>Name</th><th>AK</th><th>m/w</th><th>Boot</th><th>Zeit</th><th>Split/500 m</th><th>WR</th><th>Diff. WR</th><th>% WR</th><th>Letzter Test</th><th>Veränderung</th><th>Bestzeit</th></tr>'+rows.map(r=>`<tr><td>${r.pl}</td><td><a href="#" data-h="${r.a.id}" style="color:var(--acc)">${esc(r.a.name)}</a></td><td>${r.ac||'–'}</td><td>${r.a.gender||'–'}</td><td>${r.boat}</td><td>${f(r.fin)}</td><td>${sp(r.fin,r.e.distance_m)}</td><td>${r.wr?f(r.wr)+(r.wl?' ('+r.wl+')':''):'–'}</td><td>${r.wr?(r.fin>=r.wr?'+':'−')+f(Math.abs(r.fin-r.wr)):'–'}</td><td>${r.pct?pc(r.pct):'–'}</td><td>${r.prev?f(r.prev):'–'}</td><td>${dlt(r.dl)}</td><td>${f(r.pb)}${r.fin===r.pb?' ★':''}</td></tr>`).join('');
+  $('tt').innerHTML='<tr><th>Vgl.</th><th>Platz</th><th>Rang in AK</th><th>Name</th><th>AK</th><th>m/w</th><th>Boot</th><th>Zeit</th><th>Split/500 m</th><th>WR</th><th>Diff. WR</th><th>% WR</th><th>Letzter Test</th><th>Veränderung</th></tr>'+rows.map(r=>`<tr><td><input type="checkbox" data-c="${r.a.id}"${F.cmp.has(r.a.id)?' checked':''}></td><td>${r.pl}</td><td>${r.akr}</td><td><a href="#" data-h="${r.a.id}" style="color:var(--acc)">${esc(r.a.name)}</a></td><td>${r.ac||'–'}</td><td>${r.a.gender||'–'}</td><td>${r.boat}</td><td>${f(r.fin)}</td><td>${sp(r.fin,r.e.distance_m)}</td><td>${r.wr?f(r.wr)+(r.wl?' ('+r.wl+')':''):'–'}</td><td>${r.wr?(r.fin>=r.wr?'+':'−')+f(Math.abs(r.fin-r.wr)):'–'}</td><td>${r.pct?pc(r.pct):'–'}</td><td>${r.prev?f(r.prev):'–'}</td><td>${dlt(r.dl)}</td></tr>`).join('');
+  $('cmpb').innerHTML=F.cmp.size?barSvg(rows.filter(r=>F.cmp.has(r.a.id))):'<p class="em">Setze in der Tabelle bei „Vgl.“ ein Häkchen, um ausgewählte Personen nebeneinander zu vergleichen.</p>';
   if(F.sel)$('hist').innerHTML=histHtml(S,F.sel)};
  [['fe','ev'],['fa','ac'],['fg','g'],['fb','bt'],['fk','key']].forEach(([i,k])=>$(i).onchange=()=>{F[k]=$(i).value;upd()});
  $('fd').onclick=()=>{F.dir=-F.dir;upd()};
  $('fz').onchange=()=>{F.dz=$('fz').value;statsView()};
+ $('tt').onchange=e=>{const c=e.target.closest('[data-c]');if(!c)return;c.checked?F.cmp.add(c.dataset.c):F.cmp.delete(c.dataset.c);upd()};
  $('tt').onclick=e=>{const a=e.target.closest('[data-h]');if(!a)return;e.preventDefault();F.sel=a.dataset.h;$('hist').innerHTML=histHtml(S,F.sel);$('hist').scrollIntoView({behavior:'smooth'})};
  $('xc').onclick=async()=>{try{await navigator.clipboard.writeText([...$('tt').rows].map(r=>[...r.cells].map(c=>c.textContent).join('\t')).join('\n'));$('xc').textContent='Kopiert ✓'}catch(e){alert('Kopieren nicht möglich.')}};
  $('xx').onclick=()=>{if(typeof XLSX==='undefined')return alert('Excel-Export nicht geladen.');XLSX.writeFile(XLSX.utils.table_to_book($('tt')),'auswertung.xlsx')};
@@ -354,7 +360,7 @@ function calcView(){
  <div class="box"><div class="bar"><label>Distanz (m)<input id="cd" type="number" inputmode="numeric" value="2000" style="width:110px"></label>${[500,1000,2000,5000,6000,10000].map(d=>`<button class="s" data-d="${d}">${d}</button>`).join('')}</div>
  <div class="bar"><label>Split / 500 m<input id="cs" placeholder="1:52,5" style="width:120px"></label><label>Watt<input id="cw" type="number" inputmode="decimal" placeholder="250" style="width:100px"></label><label>Endzeit<input id="ct" placeholder="7:30,0" style="width:130px"></label></div><p class="err" id="cm"></p></div>
  <h2>Andere Distanzen</h2><div class="box w"><table id="cx"></table></div>
- <p class="em">Watt = 2,80 ÷ (Sekunden pro Meter)³ (Formel von Concept2, gilt fürs Ergometer). „Mit Ermüdung“ rechnet +5 s pro 500 m bei jeder Verdopplung der Distanz (Faustregel).</p>`;
+ <p class="em">Watt = 2,80 ÷ (Sekunden pro Meter)³ (Formel von Concept2, gilt fürs Ergometer).</p>`;
  bindOut();
  const $=i=>document.getElementById(i);
  $('bk').onclick=me.role==='rower'?rowerView:me.role==='referee'?refView:trainerView;
@@ -368,9 +374,8 @@ function calcView(){
   if(src!=='s')$('cs').value=f(sp);
   if(src!=='w')$('cw').value=wattOf(sp).toFixed(0);
   if(src!=='t')$('ct').value=d>0?hms(sp*d/500):'';
-  $('cx').innerHTML='<tr><th>Distanz</th><th>Zeit (gleiches Tempo)</th><th>Zeit mit Ermüdung</th><th>Split mit Ermüdung</th><th>Watt mit Ermüdung</th></tr>'+[500,1000,2000,5000,6000,10000,21097].map(D=>{
-   const s2=d>0?sp+5000*Math.log2(D/d):sp;
-   return `<tr><td>${D} m</td><td>${hms(sp*D/500)}</td><td>${hms(s2*D/500)}</td><td>${f(s2)}</td><td>${wattOf(s2).toFixed(0)}</td></tr>`}).join('')};
+  $('cx').innerHTML='<tr><th>Distanz</th><th>Zeit</th></tr>'+[500,1000,2000,5000,6000,10000,21097].map(D=>{
+   return `<tr><td>${D} m</td><td>${hms(sp*D/500)}</td></tr>`}).join('')};
  $('cs').oninput=()=>upd('s');$('cw').oninput=()=>upd('w');$('ct').oninput=()=>upd('t');$('cd').oninput=()=>upd('s');
  document.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{$('cd').value=b.dataset.d;upd('s')});
 }
@@ -394,26 +399,15 @@ async function nomView(){
  const $=i=>document.getElementById(i),tr=me.role!=='rower';
  $('bk').onclick=tr?trainerView:rowerView;
  let S,FL;
- try{S=await loadStats();FL=Object.fromEntries((await fetchAll('athlete_formal','*',['athlete_id'])).map(x=>[x.athlete_id,x.flags||{}]))}catch(e){return $('nm').innerHTML=`<p class="err">${esc(e.message)}</p>`}
+ try{S=await loadStats();S.TR=await fetchAll('time_results','*',['event_id','athlete_id']);FL=Object.fromEntries((await fetchAll('athlete_formal','*',['athlete_id'])).map(x=>[x.athlete_id,x.flags||{}]))}catch(e){return $('nm').innerHTML=`<p class="err">${esc(e.message)}</p>`}
  let pk=PROGS[0].k,sel=tr?null:(S.D.A[0]||{}).id;
  if(!tr&&S.D.A[0]){const c=ageClass(S.D.A[0].birth_year,2027);pk=(PROGS.find(p=>p.ac===c)||PROGS[0]).k}
  $('nm').innerHTML=`<div class="bar"><label>Programm<select id="np">${PROGS.map(p=>`<option value="${p.k}"${p.k===pk?' selected':''}>${esc(p.l)}</option>`).join('')}</select></label></div><p class="em" id="pi"></p>
  <div class="box w"><table id="nt"></table></div><div id="fd"></div>
  <p class="em">Orientierung auf Basis der ÖRV-Leitfäden 2027 und der Tests in dieser App seit 28.09.2026. Die Nominierung erfolgt durch den Verband bzw. UNISPORT AUSTRIA, es gibt keinen Anspruch auf Nominierung. Wildcards sind möglich.</p>`;
- const draw=()=>{const P=PROGS.find(p=>p.k===pk),rows=[];
+ const draw=()=>{const P=PROGS.find(p=>p.k===pk),rows=nomRows(S,FL,P);
   $('pi').textContent=P.info||'';
-  S.D.A.forEach(a=>{const by=a.birth_year;if(!by)return;const ac=ageClass(by,2027);
-   if(P.ac&&ac!==P.ac)return;if(P.by&&(by<P.by[0]||by>P.by[1]))return;
-   const mine=S.R.filter(r=>r.a.id===a.id&&r.date>=SEASON0),g=a.gender,fl=FL[a.id]||{},cnt=fn=>mine.filter(fn).length;
-   const ergs=mine.filter(r=>r.boat==='Erg'&&r.e.distance_m===2000).map(r=>r.fin),bestE=ergs.length?Math.min(...ergs):null,lim=P.erg&&g?P.erg[g==='m'?0:1]:null;
-   const wat=P.water?mine.filter(r=>r.boat!=='Erg'&&r.e.distance_m===2000).map(r=>{const w=findWr(S.D.W,P.wr,g,a.weight_class||'open',r.boat,2000);return w?{p:w.record_ms/r.fin*100,need:P.water(r.boat)}:null}).filter(Boolean).sort((x,y)=>(y.p-y.need)-(x.p-x.need))[0]:null;
-   const n={k2:cnt(r=>r.boat==='Erg'&&r.e.distance_m===2000),k6:cnt(r=>r.boat==='Erg'&&r.e.distance_m===6000),m30:cnt(r=>r.e.discipline==='30min'),lg:cnt(r=>r.e.discipline==='lang'),kl:cnt(r=>r.e.discipline==='klein')},miss=[];
-   if(P.erg){if(!g)miss.push('Geschlecht fehlt');else if(bestE==null)miss.push('kein 2k-Ergo');else if(bestE>lim)miss.push('Ergo '+f(bestE-lim)+' zu langsam')}
-   if(P.water){if(!wat)miss.push('kein Wasser-Ergebnis (2000 m) mit Referenzzeit');else if(wat.p<wat.need)miss.push('Wasser '+(wat.need-wat.p).toFixed(1).replace('.',',')+' %-Punkte fehlen')}
-   [['k2','n2k','2k-Tests'],['k6','n6k','6k-Tests'],['lg','lang','Langstrecke'],['kl','klein','Kleinboottest']].forEach(([x,y,l])=>{if(P[y]&&n[x]<P[y])miss.push(l+' '+n[x]+'/'+P[y])});
-   if(typeof P.n30==='number'&&n.m30<P.n30)miss.push('30-Min-Tests '+n.m30+'/'+P.n30);
-   const fm=FORMAL.filter(([k])=>fl[k]).length;if(fm<FORMAL.length)miss.push('Formales '+fm+'/'+FORMAL.length);
-   rows.push({a,ac,bestE,lim,wat,miss})});
+
   $('nt').innerHTML=rows.length?'<tr><th>Name</th><th>AK</th><th>2k-Ergo</th><th>Limit</th><th>Wasser % WR / nötig</th><th>Status</th></tr>'+rows.map(r=>`<tr><td><a href="#" data-a="${r.a.id}" style="color:var(--acc)">${esc(r.a.name)}</a></td><td>${r.ac}</td><td>${r.bestE?f(r.bestE):'–'}</td><td>${r.lim?f(r.lim):'–'}</td><td>${r.wat?pc(r.wat.p)+' / '+r.wat.need+' %':'–'}</td><td style="white-space:normal;min-width:220px">${r.miss.length?'<span style="color:var(--stop)">Offen: '+esc(r.miss.join(' · '))+'</span>':'<span style="color:var(--acc)">Alle Kriterien erfüllt ✓</span>'}</td></tr>`).join(''):'<tr><td class="em">Niemand in dieser Gruppe. Geburtsjahr unter „Teilnehmer“ eintragen oder anderes Programm wählen.</td></tr>';
   const sa=sel&&S.D.A.find(a=>a.id===sel);
   $('fd').innerHTML=sa?`<div class="box"><b>${esc(sa.name)}: formale Voraussetzungen</b>${FORMAL.map(([k,l])=>`<label class="row" style="flex-direction:row;color:var(--ink);font-size:17px"><span>${l}</span><input type="checkbox" data-k="${k}"${(FL[sel]||{})[k]?' checked':''}${tr?'':' disabled'}></label>`).join('')}</div>`:''};
@@ -422,6 +416,44 @@ async function nomView(){
  $('fd').onchange=async e=>{const c=e.target.closest('[data-k]');if(!c||!tr)return;FL[sel]=Object.assign({},FL[sel],{[c.dataset.k]:c.checked});draw();
   const r=await sb.from('athlete_formal').upsert({athlete_id:sel,flags:FL[sel],updated_at:new Date().toISOString()});if(r.error)alert(r.error.message)};
  draw();
+}
+function nomRows(S,FL,P){const rows=[];
+  S.D.A.forEach(a=>{const by=a.birth_year;if(!by)return;const ac=ageClass(by,2027);
+   if(P.ac&&ac!==P.ac)return;if(P.by&&(by<P.by[0]||by>P.by[1]))return;
+   const mine=S.R.filter(r=>r.a.id===a.id&&r.date>=SEASON0),g=a.gender,fl=FL[a.id]||{},cnt=fn=>mine.filter(fn).length;
+   const ergs=mine.filter(r=>r.boat==='Erg'&&r.e.distance_m===2000).map(r=>r.fin),bestE=ergs.length?Math.min(...ergs):null,lim=P.erg&&g?P.erg[g==='m'?0:1]:null;
+   const wat=P.water?mine.filter(r=>r.boat!=='Erg'&&r.e.distance_m===2000).map(r=>{const w=findWr(S.D.W,P.wr,g,a.weight_class||'open',r.boat,2000);return w?{p:w.record_ms/r.fin*100,need:P.water(r.boat)}:null}).filter(Boolean).sort((x,y)=>(y.p-y.need)-(x.p-x.need))[0]:null;
+   const n={k2:cnt(r=>r.boat==='Erg'&&r.e.distance_m===2000),k6:cnt(r=>r.boat==='Erg'&&r.e.distance_m===6000),m30:(S.TR||[]).filter(t=>{const e=S.D.E.find(z=>z.id===t.event_id);return t.athlete_id===a.id&&e&&e.discipline==='30min'&&T(e.created_at)>=SEASON0}).length,lg:cnt(r=>r.e.discipline==='lang'),kl:cnt(r=>r.e.discipline==='klein')},miss=[];
+   if(P.erg){if(!g)miss.push('Geschlecht fehlt');else if(bestE==null)miss.push('kein 2k-Ergo');else if(bestE>lim)miss.push('Ergo '+f(bestE-lim)+' zu langsam')}
+   if(P.water){if(!wat)miss.push('kein Wasser-Ergebnis (2000 m) mit Referenzzeit');else if(wat.p<wat.need)miss.push('Wasser '+(wat.need-wat.p).toFixed(1).replace('.',',')+' %-Punkte fehlen')}
+   [['k2','n2k','2k-Tests'],['k6','n6k','6k-Tests'],['lg','lang','Langstrecke'],['kl','klein','Kleinboottest']].forEach(([x,y,l])=>{if(P[y]&&n[x]<P[y])miss.push(l+' '+n[x]+'/'+P[y])});
+   if(typeof P.n30==='number'&&n.m30<P.n30)miss.push('30-Min-Tests '+n.m30+'/'+P.n30);
+   const fm=FORMAL.filter(([k])=>fl[k]).length;if(fm<FORMAL.length)miss.push('Formales '+fm+'/'+FORMAL.length);
+   rows.push({a,ac,bestE,lim,wat,miss})});
+ return rows}
+async function listView(){
+ app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Athletenliste (nur Lesen)</h2><div class="box w"><table id="lt"><tr><td class="em">Lädt …</td></tr></table></div><p class="em">Reine Leseansicht: Hier kann nichts geändert oder gelöscht werden. Bearbeiten geht unter „Teilnehmer“.</p>';bindOut();
+ const $=i=>document.getElementById(i);$('bk').onclick=trainerView;
+ let S,FL;
+ try{S=await loadStats();S.TR=await fetchAll('time_results','*',['event_id','athlete_id']);FL=Object.fromEntries((await fetchAll('athlete_formal','*',['athlete_id'])).map(x=>[x.athlete_id,x.flags||{}]))}catch(e){return $('lt').innerHTML=`<tr><td class="err">${esc(e.message)}</td></tr>`}
+ const per={};PROGS.forEach(P=>nomRows(S,FL,P).forEach(r=>(per[r.a.id]=per[r.a.id]||[]).push({P,r})));
+ $('lt').innerHTML='<tr><th>Name</th><th>AK 2027</th><th>m/w</th><th>Gewicht</th><th>Nominierungs-Richtwerte</th></tr>'+[...S.D.A].sort((x,y)=>x.name.localeCompare(y.name)).map(a=>`<tr><td>${esc(a.name)}</td><td>${a.birth_year?ageClass(a.birth_year,2027):'–'}</td><td>${a.gender||'–'}</td><td>${a.weight_class==='lw'?'Leicht':'Offen'}</td><td style="white-space:normal;min-width:260px">${(per[a.id]||[]).map(({P,r})=>`<div>${esc(P.l)}: ${r.miss.length?'<span style="color:var(--stop)">offen: '+esc(r.miss.join(' · '))+'</span>':'<span style="color:var(--acc)">erfüllt ✓</span>'}</div>`).join('')||'<span class="em">Geburtsjahr fehlt oder kein passendes Programm</span>'}</td></tr>`).join('');
+}
+const DUR={'30min':1800000,'60min':3600000};
+async function distView(ev,AL,part){
+ const r0=await sb.from('time_results').select('*').eq('event_id',ev.id),val=Object.fromEntries((r0.data||[]).map(x=>[x.athlete_id,x.distance_m])),dur=DUR[ev.discipline];
+ app.innerHTML=header()+`<button class="s" id="bk">Zurück</button><h2>${esc(ev.title)} <span class="em" style="font-size:17px">${ev.discipline==='60min'?'1-Stunden-Test':'30-Minuten-Test'}</span></h2><p class="em">Trage pro Person die erreichte Distanz in ganzen Metern ein (Ergometer-Display). Ø-Split und Watt rechnen sich selbst aus.</p><p id="msg" class="err"></p><div class="box w"><table id="dt"></table></div>`;
+ bindOut();
+ const $=i=>document.getElementById(i),msg=(t,ok)=>{$('msg').textContent=t||'';$('msg').style.color=ok?'var(--acc)':''};
+ $('bk').onclick=me.role==='referee'?refView:trainerView;
+ const calc=d=>d>0?{sp:dur/(d/500),w:wattOf(dur/(d/500))}:null;
+ $('dt').innerHTML='<tr><th>Name</th><th>Distanz (m)</th><th>Ø-Split /500 m</th><th>Watt</th></tr>'+AL.filter(a=>part.has(a.id)).map(a=>{const c=calc(val[a.id]);return `<tr><td>${esc(a.name)}</td><td><input type="number" inputmode="numeric" min="500" max="40000" step="1" data-a="${a.id}" value="${val[a.id]||''}" style="width:110px"></td><td id="s_${a.id}">${c?f(c.sp):'–'}</td><td id="w_${a.id}">${c?c.w.toFixed(0):'–'}</td></tr>`}).join('');
+ $('dt').onchange=async e=>{const i=e.target.closest('[data-a]');if(!i)return;const id=i.dataset.a,d=+i.value,nm=AL.find(a=>a.id===id).name;
+  if(i.value.trim()===''){const r=await sb.from('time_results').delete().eq('event_id',ev.id).eq('athlete_id',id);msg(r.error?'NICHT gespeichert: '+r.error.message:'✓ Eintrag für '+nm+' entfernt.',!r.error);$('s_'+id).textContent='–';$('w_'+id).textContent='–';return}
+  if(!Number.isInteger(d)||d<500||d>40000){msg('Ungültige Distanz für '+nm+'. Bitte ganze Meter zwischen 500 und 40000 eingeben.');return}
+  const r=await sb.from('time_results').upsert({event_id:ev.id,athlete_id:id,distance_m:d});
+  if(r.error){msg('NICHT gespeichert: '+(/row-level security/.test(r.error.message)?'keine Berechtigung.':r.error.message));return}
+  const c=calc(d);$('s_'+id).textContent=f(c.sp);$('w_'+id).textContent=c.w.toFixed(0);msg('✓ Gespeichert: '+nm+' '+d+' m, Ø '+f(c.sp)+' /500 m, '+c.w.toFixed(0)+' W',true)};
 }
 let ATH=[];
 async function loadAth(){
