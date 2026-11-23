@@ -45,7 +45,7 @@ function showAuth(msg=''){
  <div class="tabs"><button class="${reg?'s':''}" data-m="login">Anmelden</button><button class="${reg?'':'s'}" data-m="register">Registrieren</button></div>
  <form id="af" novalidate>${reg?'<label>Name<input id="nm" required autocomplete="name"></label><label>Club (Pflicht)<select id="cl" required><option value="">– wählen –</option>'+CLUBS.map(c=>`<option>${esc(c)}</option>`).join('')+'</select></label>'+(CLUBS.length?'':'<p class="err">Es sind noch keine Clubs angelegt. Bitte den ÖRV-Trainer kontaktieren.</p>'):''}
  <label>E-Mail<input id="em" type="email" required autocomplete="email"></label>
- <label>Passwort (mind. 6 Zeichen)<input id="pw" type="password" minlength="6" required autocomplete="${reg?'new-password':'current-password'}"></label>
+ <label>Passwort / Code (mind. 6 Zeichen)<input id="pw" type="password" minlength="6" required autocomplete="${reg?'new-password':'current-password'}"></label>
  <button>${reg?'Konto erstellen':'Anmelden'}</button></form><p class="err" id="msg">${esc(msg)}</p>`;
  app.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{authMode=b.dataset.m;showAuth()});
  document.getElementById('af').onsubmit=async e=>{e.preventDefault();
@@ -570,14 +570,14 @@ async function regView(id){
  if(!id){
   app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Regatta-Verwaltung</h2><div class="bar"><label>Neue Regatta<input id="rn" placeholder="Name"></label><button id="ra">Anlegen</button></div><div class="box" id="rl"><p class="em">Lädt …</p></div>';bindOut();
   $('bk').onclick=homeView;const r=await sb.from('regattas').select('*').order('created_at',{ascending:false});
-  $('rl').innerHTML=r.error?`<p class="err">${esc(r.error.message)}</p>`:(r.data||[]).map(g=>`<div class="row"><span>${esc(g.title)}</span><button class="s" onclick="regView('${g.id}')">Öffnen</button></div>`).join('')||'<p class="em">Noch keine Regatta.</p>';
-  $('ra').onclick=async()=>{const n=$('rn').value.trim();if(!n)return;const q=await sb.from('regattas').insert({title:n}).select('id').single();if(q.error)return alert(q.error.message);regView(q.data.id)};return}
+  $('rl').innerHTML=r.error?`<p class="err">${esc(dbErr(r.error))}</p>`:(r.data||[]).map(g=>`<div class="row"><span>${esc(g.title||g.name||'Regatta')}</span><button class="s" onclick="regView('${g.id}')">Öffnen</button></div>`).join('')||'<p class="em">Noch keine Regatta.</p>';
+  $('ra').onclick=async()=>{const n=$('rn').value.trim();if(!n)return;let q=await sb.from('regattas').insert({title:n}).select('id').single();if(q.error&&/title/.test(q.error.message))q=await sb.from('regattas').insert({name:n}).select('id').single();if(q.error)return alert('Regatta konnte nicht angelegt werden: '+dbErr(q.error));regView(q.data.id)};return}
  const pg=async t=>{let o=[],i=0;for(;;){const r=await sb.from(t).select('*').eq('regatta_id',id).order('id').range(i,i+999);if(r.error)throw r.error;o=o.concat(r.data);if(r.data.length<1000)return o;i+=1000}};
  let G,E,SL,Q='';
  app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><div id="rb"><p class="em">Lädt …</p></div>';bindOut();$('bk').onclick=()=>regView();
  try{const g=await sb.from('regattas').select('*').eq('id',id).single();if(g.error)throw g.error;G=g.data;G.rounds=G.rounds||[];E=await pg('reg_entries');SL=await pg('reg_slots')}catch(e){return $('rb').innerHTML=`<p class="err">${esc(e.message)}</p>`}
  let EM=Object.fromEntries(E.map(x=>[x.id,x]));
- $('rb').innerHTML=`<h2>${esc(G.title)}</h2><div class="bar"><label>Suchen (Name/Club)<input id="rq" style="width:220px"></label><span class="em" id="rc"></span></div>
+ $('rb').innerHTML=`<h2>${esc(G.title||G.name||'Regatta')}</h2><div class="bar"><label>Suchen (Name/Club)<input id="rq" style="width:220px"></label><span class="em" id="rc"></span></div>
  <details class="box"><summary><b>1 · Teilnehmer</b></summary><label>Eine Zeile pro Boot/Ruderer, optional „Name;Club“<textarea id="rt" rows="5" style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;box-sizing:border-box"></textarea></label><div class="bar" style="margin-top:8px"><button id="re">Hinzufügen</button></div></details>
  <details class="box"><summary><b>2 · Runden und Aufstiegsregeln</b></summary><p class="em">Beispiel: Vorlauf: Top 2 pro Lauf + 4 Zeitschnellste, weiter in Halbfinale; Rest in Hoffnungslauf.</p><div class="w"><table id="rr"></table></div><div class="bar"><button class="s" id="rra">+ Runde</button><button id="rrs">Regeln speichern</button></div></details>
  <div class="bar"><button id="rg0">Runde 1 einteilen</button><button id="rgb">Aufstiegsbaum aktualisieren</button></div><p id="rm" class="err"></p><div id="rres"></div>`;
