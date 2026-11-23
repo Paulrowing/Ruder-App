@@ -23,7 +23,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .nm{font-weight:700;font-size:20px}.tm{font-size:34px;font-weight:700}
 .btns{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}.btns button{flex:1;min-height:56px}
-.lp{font-size:15px;color:var(--mute);margin-top:6px}button.stop{background:var(--stop);color:#fff}
+.big .btns button{min-height:88px;font-size:24px}.lp{font-size:15px;color:var(--mute);margin-top:6px}button.stop{background:var(--stop);color:#fff}
 .w table{min-width:480px;white-space:nowrap}
 .head{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .w{overflow-x:auto}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}th{color:var(--mute)}
@@ -79,7 +79,7 @@ async function rowerView(){
  loadHist(document.getElementById('hist'));
 }
 async function trainerView(){
- app.innerHTML=header()+`<div class="bar" style="margin-top:8px"><button id="stb">Auswertung &amp; Vergleich</button><button class="s" id="cb">Rechner</button><button class="s" id="nb2">Nominierungs-Check</button><button class="s" id="lb2">Athletenliste</button></div><h2>Tests</h2><div class="box"><form id="ef" class="bar" style="margin:0">
+ app.innerHTML=header()+`<div class="bar" style="margin-top:8px"><button id="stb">Auswertung &amp; Vergleich</button><button class="s" id="cb">Rechner</button><button class="s" id="nb2">Nominierungs-Check</button><button class="s" id="lb2">Athletenliste</button><button class="s" id="rg2">Regatta-Verwaltung</button></div><h2>Tests</h2><div class="box"><form id="ef" class="bar" style="margin:0">
  <label>Name des Tests<input id="et" required placeholder="z. B. 2000 m Test"></label>
  <label>Distanz (m)<input id="ed" type="number" value="2000" min="1" style="width:100px"></label><label>Disziplin<select id="edz"><option value="">–</option><option value="2k">2000 m Ergo</option><option value="6k">6000 m Ergo</option><option value="30min">30-Min-Test</option><option value="60min">1-Stunden-Test</option><option value="lang">Langstrecke Wasser</option><option value="klein">Kleinboot</option><option value="regatta">Regatta</option></select></label><label>Boot<select id="eb">${BOATS.map(b=>`<option>${b}</option>`).join('')}</select></label><button>Anlegen</button></form><div id="ev"></div></div>
  <h2>Fotos &amp; Einreichungen</h2><div class="box" id="ph"></div><div class="box" id="sv"></div>
@@ -92,11 +92,22 @@ async function trainerView(){
   const {data:nv,error}=await sb.from('events').insert({title:document.getElementById('et').value.trim(),distance_m:+document.getElementById('ed').value||2000,boat_class:document.getElementById('eb').value,discipline:document.getElementById('edz').value||null}).select('id').single();
   if(!error){const al=await sb.from('athletes').select('id');if(al.data&&al.data.length)await sb.from('event_athletes').insert(al.data.map(x=>({event_id:nv.id,athlete_id:x.id})))}
   if(error)alert(error.message);document.getElementById('et').value='';loadEv()};
- document.getElementById('stb').onclick=statsView;document.getElementById('cb').onclick=calcView;document.getElementById('nb2').onclick=nomView;document.getElementById('lb2').onclick=listView;photoUI(document.getElementById('ph'));loadEv();loadAth();loadWr();loadPeople();
+ document.getElementById('stb').onclick=statsView;document.getElementById('cb').onclick=calcView;document.getElementById('nb2').onclick=nomView;document.getElementById('lb2').onclick=listView;document.getElementById('rg2').onclick=()=>regView();photoUI(document.getElementById('ph'));loadEv();loadAth();loadWr();loadPeople();
 }
+const DZL={'2k':'2000 m Ergo','6k':'6000 m Ergo','30min':'30-Min-Test','60min':'1-Stunden-Test','lang':'Langstrecke Wasser','klein':'Kleinboot','regatta':'Regatta','':'Ohne Typ'};
+let EVQ='',EVT='';
 async function loadEv(){
- const {data,error}=await sb.from('events').select('*').order('created_at',{ascending:false});
- document.getElementById('ev').innerHTML=error?`<p class="err">${esc(error.message)}</p>`:data.length?data.map(e=>`<div class="row"><span>${esc(e.title)}</span><span class="em">${e.distance_m} m</span><button class="s" onclick="eventView('${e.id}')">Öffnen</button></div>`).join(''):'<p class="em">Noch kein Test angelegt.</p>';
+ const el=document.getElementById('ev'),{data,error}=await sb.from('events').select('*').order('created_at',{ascending:false});
+ if(error)return el.innerHTML=`<p class="err">${esc(error.message)}</p>`;
+ el.innerHTML=`<div class="bar"><label>Suchen<input id="eq" value="${esc(EVQ)}" placeholder="Test"></label><label>Test-Typ<select id="et2"><option value="">Alle</option>${Object.entries(DZL).map(([k,v])=>`<option value="${k}"${EVT===k?' selected':''}>${v}</option>`).join('')}</select></label></div><div id="evb"></div>`;
+ const draw=()=>{const L=data.filter(e=>(!EVQ||e.title.toLowerCase().includes(EVQ))&&(!EVT||(e.discipline||'')===EVT)),g={};
+  L.forEach(e=>(g[DZL[e.discipline||'']]=g[DZL[e.discipline||'']]||[]).push(e));
+  document.getElementById('evb').innerHTML=Object.keys(g).map(k=>`<details class="box" open><summary><b>📁 ${esc(k)}</b> (${g[k].length})</summary>${g[k].map(e=>`<div class="row" style="flex-wrap:wrap"><span>${esc(e.title)} <span class="em">${new Date(e.created_at).toLocaleDateString('de-AT')}</span></span><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="s" data-t="published" data-e="${e.id}">${e.published?'Schiedsrichter: AN':'Schiedsrichter: AUS'}</button><button class="s" data-t="upload_open" data-e="${e.id}">${e.upload_open?'Upload: OFFEN':'Upload: GESPERRT'}</button><button class="s" onclick="eventView('${e.id}')">Öffnen</button></span></div>`).join('')}</details>`).join('')||'<p class="em">Keine Tests gefunden.</p>'};
+ document.getElementById('eq').oninput=e=>{EVQ=e.target.value.trim().toLowerCase();draw()};
+ document.getElementById('et2').onchange=e=>{EVT=e.target.value;draw()};
+ el.onclick=async e=>{const b=e.target.closest('[data-t]');if(!b)return;const ev=data.find(x=>x.id===b.dataset.e),k=b.dataset.t,r=await sb.from('events').update({[k]:!ev[k]}).eq('id',ev.id).select('id');
+  if(r.error||!(r.data||[]).length)return alert('NICHT gespeichert: '+(r.error?r.error.message:'keine Berechtigung (nur ÖRV-Trainer oder Admin).'));loadEv()};
+ draw();
 }
 async function loadPeople(){
  const el=document.getElementById('pp'),adm=me.role==='admin';
@@ -112,8 +123,12 @@ let poll=null,off=0,wl=null;
 const T=t=>Date.parse(t);
 const sp=(ms,d)=>d>0?f(ms/d*500):'–';
 function repsOf(ms){const out=[];let c=null;for(const m of ms){const t=T(m.t);
- if(m.kind==='start'){c={s:t,laps:[],fin:null};out.push(c)}
- else if(c&&c.fin==null){if(m.kind==='lap')c.laps.push(t-c.s);else c.fin=t-c.s}}return out}
+ if(m.kind==='start'){c={s:t,laps:[],fin:null,pause:0,ps:null,gross:null};out.push(c)}
+ else if(c&&c.fin==null){
+  if(m.kind==='pause'){if(c.ps==null)c.ps=t}
+  else if(m.kind==='resume'){if(c.ps!=null){c.pause+=t-c.ps;c.ps=null}}
+  else if(m.kind==='lap')c.laps.push(t-c.s-c.pause-(c.ps!=null?t-c.ps:0));
+  else{if(c.ps!=null){c.pause+=t-c.ps;c.ps=null}c.gross=t-c.s;c.fin=t-c.s-c.pause}}}return out}
 function secsOf(p,ev){const m=p.laps.concat(p.fin!=null?[p.fin]:[]);return m.map((t,i)=>({t:t-(i?m[i-1]:0),len:i<p.laps.length?ev.section_m:ev.distance_m-ev.section_m*p.laps.length}))}
 async function eventView(id){
  const [a,b,c]=await Promise.all([sb.from('events').select('*').eq('id',id).single(),sb.from('athletes').select('id,name,birth_year,gender,weight_class').order('name'),sb.from('event_athletes').select('athlete_id,boat_class').eq('event_id',id)]);
@@ -123,7 +138,7 @@ async function eventView(id){
  try{mode=localStorage.getItem('mode')||'all'}catch(e){}
  if(me.role==='referee'&&mode==='all')mode='start';
  app.innerHTML=header()+`<button class="s" id="bk">Zurück</button><h2>${esc(ev.title)} <span class="em" style="font-size:17px" id="cnt"></span></h2>
- <div class="bar"><label>Meine Aufgabe auf diesem Gerät<select id="md">${me.role==='referee'?'':'<option value="all">ÖRV-Trainer: alles</option>'}<option value="start">Nur Start</option><option value="lap">Nur Zwischenzeit</option><option value="fin">Nur Ziel</option></select></label>
+ <div class="bar"><label>Meine Aufgabe auf diesem Gerät<select id="md">${me.role==='referee'?'':'<option value="all">ÖRV-Trainer: alles</option>'}<option value="start">Nur Start</option><option value="lap">Nur Zwischenzeit</option><option value="fin">Nur Ziel</option><option value="pause">Nur Pause/Wende</option></select></label>
  <label class="adm">Distanz (m)<input id="dd" type="number" value="${ev.distance_m}" style="width:100px"></label>
  <label class="adm">Abschnitt (m)<input id="ss" type="number" value="${ev.section_m}" style="width:100px"></label>
  <button class="s adm" id="tp">Teilnehmer ändern</button><button class="s adm" id="pub1"></button><button class="s adm" id="pub2"></button><button id="all">Alle starten</button></div>
@@ -138,7 +153,7 @@ async function eventView(id){
  const rp=r=>repsOf(marks.filter(m=>m.rider_id===r.id));
  const stamp=()=>new Date(Date.now()+off).toISOString();
  const sync=async()=>{const t0=performance.now(),d=Date.now();const r=await sb.rpc('server_now');if(r.error||!r.data)return;off=T(r.data)-(d+(performance.now()-t0)/2);clockOk=true};
- const last={},KL={start:'Start',lap:'Zwischenzeit',fin:'Ziel'};
+ const last={},KL={start:'Start',lap:'Zwischenzeit',fin:'Ziel',pause:'Pause',resume:'Weiter'};
  const add=async rows=>{const nw=Date.now();rows=rows.filter(x=>!(last[x.rider_id]&&nw-last[x.rider_id]<1500));if(!rows.length){msg('Doppeltippen ignoriert.');return}rows.forEach(x=>last[x.rider_id]=nw);const t=stamp();
   marks=marks.concat(rows.map((r,i)=>({...r,t,id:'tmp'+Date.now()+i}))).sort((x,y)=>T(x.t)-T(y.t));draw();
   try{navigator.vibrate&&navigator.vibrate(30)}catch(e){}
@@ -153,14 +168,16 @@ async function eventView(id){
   $('cnt').textContent=ps().length+' von '+AL.length+' dabei';
   const rows=[];
   $('lst').innerHTML=ps().length?ps().map(r=>{const rs=rp(r),l=rs[rs.length-1],cur=l&&l.fin==null?l:null;rs.forEach((p,i)=>rows.push({r,p,i}));
-   const t=cur?`<span class="tm" data-s="${cur.s}">${f(Date.now()+off-cur.s)}</span>`:`<span class="tm">${l?f(l.fin):'0:00,0'}</span>`;
-   let bt='';
-   if(!cur&&(mode==='all'||mode==='start'))bt+=`<button data-a="start" data-r="${r.id}">Start${rs.length?' Intervall '+(rs.length+1):''}</button>`;
-   if(cur&&(mode==='all'||mode==='lap'))bt+=`<button data-a="lap" data-r="${r.id}">Zwischenzeit</button>`;
-   if(cur&&(mode==='all'||mode==='fin'))bt+=`<button class="stop" data-a="fin" data-r="${r.id}">Ziel</button>`;
-   if(rs.length)bt+=`<button class="s" data-a="undo" data-r="${r.id}">Rückgängig</button>`;
-   const lp=rs.map((p,i)=>`Intervall ${i+1}: ${p.fin!=null?f(p.fin)+' ('+sp(p.fin,ev.distance_m)+'/500 m)':'läuft'}`+(i>0&&rs[i-1].fin!=null?` · Pause ${f(p.s-(rs[i-1].s+rs[i-1].fin))}`:'')).join('<br>');
-   return `<div class="r"><div class="top"><span class="nm">${esc(r.name)}${cur?' <span class="em">(Intervall '+rs.length+')</span>':''}</span>${t}</div>${mode==='all'?`<select data-b="${r.id}" style="margin-top:6px">${BOATS.map(b=>`<option${(bc[r.id]||ev.boat_class)===b?' selected':''}>${b}</option>`).join('')}</select>`:''}<div class="btns">${bt}</div>${lp?`<div class="lp">${lp}</div>`:''}</div>`}).join(''):'<p class="em">Keine Teilnehmer. Über „Teilnehmer ändern“ auswählen, wer dabei ist.</p>';
+   const pz=cur&&cur.ps!=null,t=cur?`<span class="tm" data-s="${cur.s}" data-p="${cur.pause}" data-q="${cur.ps||''}">${f((cur.ps||Date.now()+off)-cur.s-cur.pause)}</span>`:`<span class="tm">${l?f(l.fin):'0:00,0'}</span>`;
+   let bt='';const K=['6k','lang'].includes(ev.discipline);
+   if(!cur&&!rs.length&&(mode==='all'||mode==='start'))bt+=`<button data-a="start" data-r="${r.id}">Start</button>`;
+   if(cur&&!pz&&(mode==='all'||(mode==='lap'&&!cur.laps.length)))bt+=`<button data-a="lap" data-r="${r.id}">Zwischenzeit</button>`;
+   if(cur&&!pz&&(mode==='all'||mode==='fin'))bt+=`<button class="stop" data-a="fin" data-r="${r.id}">Ziel</button>`;
+   if(cur&&K&&(mode==='all'||mode==='pause'))bt+=pz?`<button data-a="resume" data-r="${r.id}">Weiter</button>`:`<button class="s" data-a="pause" data-r="${r.id}">Pause / Wende stoppen</button>`;
+   if(mode!=='all'&&l){const c=mode==='start'?'✓ Start '+new Date(l.s).toLocaleTimeString('de-AT'):mode==='lap'?(l.laps.length?'✓ Zwischenzeit '+f(l.laps[l.laps.length-1]):''):mode==='fin'?(l.fin!=null?'✓ Ziel '+f(l.fin):''):(l.pause?'Pausen gesamt '+f(l.pause):'');if(c)bt+=`<b style="flex:1;align-self:center;color:var(--acc);font-size:20px">${c}</b>`}
+   if(mode==='all'?rs.length:marks.some(m=>m.rider_id===r.id&&(m.kind===mode||(mode==='pause'&&m.kind==='resume'))))bt+=`<button class="s" data-a="undo" data-r="${r.id}">Rückgängig</button>`;
+   const lp=rs.map((p,i)=>`${rs.length>1?'Lauf '+(i+1)+': ':''}${p.fin!=null?(p.pause?'Netto ':'')+f(p.fin)+' ('+sp(p.fin,ev.distance_m)+'/500 m)'+(p.pause?` · Brutto ${f(p.gross)} · Pausen ${f(p.pause)}`:''):'läuft'}`).join('<br>');
+   return `<div class="r${mode!=='all'?' big':''}"><div class="top"><span class="nm">${esc(r.name)}</span>${t}</div>${mode==='all'?`<select data-b="${r.id}" style="margin-top:6px">${BOATS.map(b=>`<option${(bc[r.id]||ev.boat_class)===b?' selected':''}>${b}</option>`).join('')}</select>`:''}<div class="btns">${bt}</div>${lp?`<div class="lp">${lp}</div>`:''}</div>`}).join(''):'<p class="em">Keine Teilnehmer. Über „Teilnehmer ändern“ auswählen, wer dabei ist.</p>';
   const aOf=Object.fromEntries(AL.map(x=>[x.id,x])),yr=new Date(ev.created_at).getFullYear();
   rows.forEach(x=>{const a=aOf[x.r.id]||{},bt=bc[x.r.id]||ev.boat_class,ac=ageClass(a.birth_year,yr),w=a.weight_class||'open';
    const m=k=>k.gender===a.gender&&k.weight_class===w&&k.boat_class===bt&&k.distance_m===ev.distance_m;
@@ -170,17 +187,17 @@ async function eventView(id){
   const pl={};rows.forEach(x=>x.pl=x.p.fin!=null?(pl[x.i]=(pl[x.i]||0)+1):'–');
   if(sortWr)rows.sort((x,y)=>x.i-y.i||((y.pct??-1)-(x.pct??-1)));
   const n=Math.max(0,...rows.map(x=>x.p.laps.length));
-  let h='<tr><th>Platz</th><th>Name</th><th>AK</th><th>Boot</th><th>Int.</th><th>Gesamt</th><th>Split/500 m</th><th>WR</th><th>Diff. WR</th><th>% WR</th>'+Array.from({length:n},(_,k)=>`<th>Abschnitt ${k+1}</th>`).join('')+'</tr>';
-  rows.forEach(x=>{const s=secsOf(x.p,ev),fin=x.p.fin;h+=`<tr><td>${x.pl}</td><td>${esc(x.r.name)}</td><td>${x.ac||'–'}</td><td>${x.bt}</td><td>${x.i+1}</td><td>${fin!=null?f(fin):'läuft'}</td><td>${fin!=null?sp(fin,ev.distance_m):'–'}</td><td>${x.wr?f(x.wr)+(x.wl?' ('+x.wl+')':''):'–'}</td><td>${x.wr&&fin!=null?(fin>=x.wr?'+':'−')+f(Math.abs(fin-x.wr)):'–'}</td><td>${x.pct?x.pct.toFixed(1).replace('.',',')+' %':'–'}</td>`+Array.from({length:n},(_,k)=>`<td>${s[k]?f(s[k].t):'–'}</td>`).join('')+'</tr>'});
+  let h='<tr><th>Platz</th><th>Name</th><th>AK</th><th>Boot</th><th>Gesamt</th><th>Split/500 m</th><th>WR</th><th>Diff. WR</th><th>% WR</th>'+Array.from({length:n},(_,k)=>`<th>Abschnitt ${k+1}</th>`).join('')+'</tr>';
+  rows.forEach(x=>{const s=secsOf(x.p,ev),fin=x.p.fin;h+=`<tr><td>${x.pl}</td><td>${esc(x.r.name)}</td><td>${x.ac||'–'}</td><td>${x.bt}</td><td>${fin!=null?f(fin):'läuft'}</td><td>${fin!=null?sp(fin,ev.distance_m):'–'}</td><td>${x.wr?f(x.wr)+(x.wl?' ('+x.wl+')':''):'–'}</td><td>${x.wr&&fin!=null?(fin>=x.wr?'+':'−')+f(Math.abs(fin-x.wr)):'–'}</td><td>${x.pct?x.pct.toFixed(1).replace('.',',')+' %':'–'}</td>`+Array.from({length:n},(_,k)=>`<td>${s[k]?f(s[k].t):'–'}</td>`).join('')+'</tr>'});
   $('tb').innerHTML=h};
  const load=async()=>{const r=await sb.from('marks').select('id,rider_id,kind,t').eq('event_id',id).order('t');if(r.error)msg(r.error.message);else{marks=r.data;draw()}};
  $('lst').onclick=async e=>{const b=e.target.closest('button');if(!b)return;const r=b.dataset.r,a=b.dataset.a;
-  if(a==='undo'){let l=marks.filter(m=>m.rider_id===r).pop();if(l&&String(l.id).startsWith('tmp')){await load();l=marks.filter(m=>m.rider_id===r).pop()}
+  if(a==='undo'){if(!confirm('Bist du sicher, dass du diese Zeitnahme rückgängig machen willst?'))return;let l=marks.filter(m=>m.rider_id===r&&(mode==='all'||m.kind===mode||(mode==='pause'&&m.kind==='resume'))).pop();if(l&&String(l.id).startsWith('tmp')){await load();l=marks.filter(m=>m.rider_id===r&&(mode==='all'||m.kind===mode||(mode==='pause'&&m.kind==='resume'))).pop()}
    if(l){marks=marks.filter(m=>m.id!==l.id);draw();await sb.from('marks').delete().eq('id',l.id);await load()}}
   else add([{event_id:id,rider_id:r,kind:a}])};
  $('lst').onchange=async e=>{const q=e.target.closest('[data-b]');if(!q)return;bc[q.dataset.b]=q.value;draw();await sb.from('event_athletes').update({boat_class:q.value}).eq('event_id',id).eq('athlete_id',q.dataset.b)};
  $('so').onclick=()=>{sortWr=!sortWr;$('so').textContent='Sortierung: '+(sortWr?'% WR':'Zeit');draw()};
- $('all').onclick=()=>{const rows=ps().filter(r=>{const rs=rp(r),l=rs[rs.length-1];return !l||l.fin!=null}).map(r=>({event_id:id,rider_id:r.id,kind:'start'}));if(rows.length&&confirm(rows.length+' Personen jetzt gleichzeitig starten?'))add(rows)};
+ $('all').onclick=()=>{const rows=ps().filter(r=>{const rs=rp(r),l=rs[rs.length-1];return !l}).map(r=>({event_id:id,rider_id:r.id,kind:'start'}));if(rows.length&&confirm(rows.length+' Personen jetzt gleichzeitig starten?'))add(rows)};
  $('md').onchange=()=>{mode=$('md').value;try{localStorage.setItem('mode',mode)}catch(e){}draw()};
  const upd=async()=>{const d=+$('dd').value,sc=+$('ss').value;if(!(Number.isInteger(d)&&d>=100&&d<=100000&&Number.isInteger(sc)&&sc>=50&&sc<=d)){msg('Distanz und Abschnitt müssen ganze Meter sein (Abschnitt höchstens so lang wie die Distanz).');return}ev.distance_m=d;ev.section_m=sc;await sb.from('events').update({distance_m:ev.distance_m,section_m:ev.section_m}).eq('id',id);draw()};
  $('dd').onchange=upd;$('ss').onchange=upd;
@@ -192,7 +209,7 @@ async function eventView(id){
  $('pa').onclick=async()=>{AL.forEach(x=>part.add(x.id));draw();drawPl();await sb.from('event_athletes').upsert(AL.map(x=>({event_id:id,athlete_id:x.id})))};
  $('pn').onclick=async()=>{part.clear();draw();drawPl();await sb.from('event_athletes').delete().eq('event_id',id)};
  $('bk').onclick=me.role==='referee'?refView:trainerView;
- const tg=(bid,k,on,off)=>{const b=$(bid),sh=()=>b.textContent=ev[k]?on:off;sh();b.onclick=async()=>{const r=await sb.from('events').update({[k]:!ev[k]}).eq('id',id);if(r.error)return msg(r.error.message);ev[k]=!ev[k];sh();msg('✓ Gespeichert',true)}};
+ const tg=(bid,k,on,off)=>{const b=$(bid),sh=()=>b.textContent=ev[k]?on:off;sh();b.onclick=async()=>{const r=await sb.from('events').update({[k]:!ev[k]}).eq('id',id).select('id');if(r.error)return msg(r.error.message);if(!(r.data||[]).length)return msg('NICHT gespeichert: keine Berechtigung (nur ÖRV-Trainer oder Admin).');ev[k]=!ev[k];sh();msg('✓ Gespeichert',true)}};
  tg('pub1','published','Schiedsrichter-Freigabe: AN','Schiedsrichter-Freigabe: AUS');tg('pub2','upload_open','Upload für Ruderer: OFFEN','Upload für Ruderer: GESPERRT');
  $('cp').onclick=async()=>{const t=[...$('tb').rows].map(tr=>[...tr.cells].map(c=>c.textContent).join('\t')).join('\n');
   try{await navigator.clipboard.writeText(t);msg('Kopiert. Jetzt in Excel einfügen.')}catch(e){msg('Kopieren nicht möglich.')}};
@@ -201,7 +218,7 @@ async function eventView(id){
  if($('dl'))$('dl').onclick=async()=>{if(!confirm('Diesen Test mit allen Zeiten endgültig löschen?'))return;const r=await sb.from('events').delete().eq('id',id);if(r.error)msg(r.error.message);else trainerView()};
  try{wl=await navigator.wakeLock.request('screen')}catch(e){}
  await sync();await load();
- let k=0;poll=setInterval(()=>{document.querySelectorAll('[data-s]').forEach(n=>n.textContent=f(Date.now()+off-n.dataset.s));k++;if(k%15===0)load();if(k%600===0)sync()},100);
+ let k=0;poll=setInterval(()=>{document.querySelectorAll('[data-s]').forEach(n=>n.textContent=f((n.dataset.q?+n.dataset.q:Date.now()+off)-n.dataset.s-(+n.dataset.p||0)));k++;if(k%15===0)load();if(k%600===0)sync()},100);
 }
 const BOATS=['Erg','1x','2-','2x','4-','4x','8+'],ACS=['U17','U19','U23','Elite'];
 const ageClass=(by,y)=>{if(!by)return '';const a=y-by;return a<=16?'U17':a<=18?'U19':a<=22?'U23':'Elite'};
@@ -377,16 +394,21 @@ async function photoUI(el){
   $('pl2').onclick=async e=>{const b=e.target.closest('[data-ph]');if(!b)return;const u=await sb.storage.from('photos').createSignedUrl(b.dataset.ph,600);if(u.data)b.insertAdjacentHTML('afterend',`<img src="${u.data.signedUrl}" alt="Foto" style="max-width:100%;border-radius:8px;margin-top:6px">`);b.remove()}};
  mine();
 }
-let SUBG='status';
+let SUBG='test',SUBQ='',SUBAK='',SUBGN='',SUBTT='',SUBSO='date';
 async function loadSubs(){const el=document.getElementById('sv');if(!el)return;
- const r=await sb.from('submissions').select('*,profiles(name),events(title),athletes(name)').order('created_at',{ascending:false});
+ const r=await sb.from('submissions').select('*,profiles(name),events(title,discipline),athletes(name,club,birth_year,gender)').order('created_at',{ascending:false});
  if(r.error)return el.innerHTML=`<p class="err">${esc(r.error.message)}</p>`;
- const who=s=>s.athletes?.name||s.profiles?.name||'Unbekannt',key=s=>SUBG==='test'?(s.events?.title||'Ohne Test'):SUBG==='person'?who(s):({'neu':'1 · Neu (zu prüfen)','geprüft':'2 · Geprüft','veröffentlicht':'3 · Veröffentlicht'})[s.status],g={};
- r.data.forEach((s,i)=>(g[key(s)]=g[key(s)]||[]).push([s,i]));
- el.innerHTML=`<div class="bar"><label>Ordner nach<select id="sg"><option value="status">Status</option><option value="test">Test</option><option value="person">Person</option></select></label></div>`+(Object.keys(g).sort().map(k=>`<details class="box"${SUBG==='status'&&k.startsWith('1')?' open':''}><summary><b>📁 ${esc(k)}</b> (${g[k].length})</summary>${g[k].map(([s,i])=>`<div class="row"><span>${new Date(s.created_at).toLocaleDateString('de-AT')} · ${esc(who(s))}${SUBG!=='test'?' · '+esc(s.events?.title||'Ohne Test'):''} <span class="em">${s.status} · ${(s.rows||[]).length} Zeilen</span></span><button class="s" data-o="${i}">Öffnen</button></div>`).join('')}</details>`).join('')||'<p class="em">Noch keine Einreichungen.</p>');
- document.getElementById('sg').value=SUBG;
- el.onchange=e=>{if(e.target.id==='sg'){SUBG=e.target.value;loadSubs()}};
- el.onclick=e=>{const b=e.target.closest('[data-o]');if(b)subEdit(r.data[b.dataset.o])}}
+ const who=s=>s.athletes?.name||s.profiles?.name||'Unbekannt',ak=s=>s.athletes?.birth_year?ageClass(s.athletes.birth_year,2027):'',op=(a,v)=>a.map(([k,l])=>`<option value="${k}"${k===v?' selected':''}>${l}</option>`).join('');
+ el.innerHTML=`<div class="bar"><label>Suchen<input id="sq" value="${esc(SUBQ)}" placeholder="Name oder Club"></label><label>Ordner nach<select id="sg">${op([['test','Test'],['status','Status'],['person','Person']],SUBG)}</select></label><label>AK<select id="sak">${op([['','Alle'],['U17','U17'],['U19','U19'],['U23','U23'],['Elite','Elite']],SUBAK)}</select></label><label>m/w<select id="sgn">${op([['','Alle'],['m','M'],['w','W']],SUBGN)}</select></label><label>Test-Typ<select id="stt">${op([['','Alle']].concat(Object.entries(DZL).filter(x=>x[0]).map(x=>[x[0],x[1]])),SUBTT)}</select></label><label>Sortieren<select id="sso">${op([['date','Datum'],['name','Name'],['ak','AK']],SUBSO)}</select></label></div><div id="sbody"></div>`;
+ const draw=()=>{const q=SUBQ.toLowerCase();let L=r.data.map((s,i)=>({s,i})).filter(({s})=>(!q||(who(s)+' '+(s.athletes?.club||'')).toLowerCase().includes(q))&&(!SUBAK||ak(s)===SUBAK)&&(!SUBGN||s.athletes?.gender===SUBGN)&&(!SUBTT||s.events?.discipline===SUBTT));
+  if(SUBSO==='name')L.sort((a,b)=>who(a.s).localeCompare(who(b.s)));else if(SUBSO==='ak')L.sort((a,b)=>ak(a.s).localeCompare(ak(b.s))||who(a.s).localeCompare(who(b.s)));
+  const key=({s})=>SUBG==='test'?(s.events?.title||'Ohne Test'):SUBG==='person'?who(s):({'neu':'1 · Neu (zu prüfen)','geprüft':'2 · Geprüft','veröffentlicht':'3 · Veröffentlicht'})[s.status],g={};
+  L.forEach(x=>(g[key(x)]=g[key(x)]||[]).push(x));
+  document.getElementById('sbody').innerHTML=Object.keys(g).sort().map(k=>`<details class="box"${SUBG==='status'&&k.startsWith('1')||L.length<15?' open':''}><summary><b>📁 ${esc(k)}</b> (${g[k].length})</summary>${g[k].map(({s,i})=>`<div class="row"><span>${new Date(s.created_at).toLocaleDateString('de-AT')} · ${esc(who(s))} <span class="em">${ak(s)} ${s.athletes?.club?'· '+esc(s.athletes.club):''} · ${s.status}${SUBG!=='test'?' · '+esc(s.events?.title||''):''}</span></span><button class="s" data-o="${i}">Öffnen</button></div>`).join('')}</details>`).join('')||'<p class="em">Keine Einreichungen gefunden.</p>'};
+ el.oninput=e=>{if(e.target.id==='sq'){SUBQ=e.target.value.trim();draw()}};
+ el.onchange=e=>{const m={sg:'SUBG',sak:'SUBAK',sgn:'SUBGN',stt:'SUBTT',sso:'SUBSO'}[e.target.id];if(!m)return;({sg:()=>SUBG=e.target.value,sak:()=>SUBAK=e.target.value,sgn:()=>SUBGN=e.target.value,stt:()=>SUBTT=e.target.value,sso:()=>SUBSO=e.target.value})[e.target.id]();draw()};
+ el.onclick=e=>{const b=e.target.closest('[data-o]');if(b)subEdit(r.data[b.dataset.o])};
+ draw()}
 async function loadPub(el){const r=await sb.from('submissions').select('rows,events(title),created_at').eq('status','veröffentlicht').order('created_at',{ascending:false});
  if(r.error)return el.innerHTML=`<p class="err">${esc(r.error.message)}</p>`;
  const L=[];r.data.forEach(s=>(s.rows||[]).forEach(x=>L.push({t:s.events?.title||'–',x})));
@@ -402,7 +424,7 @@ async function subEdit(s){
  const draw=()=>{let v=rows.map((r,i)=>({r,i})).filter(o=>!q||C.some(([k])=>String(o.r[k]??'').toLowerCase().includes(q)));
   if(sk)v.sort((a,b)=>String(a.r[sk]??'').localeCompare(String(b.r[sk]??''),'de',{numeric:true})*dir);
   $('etb').innerHTML='<tr>'+C.map(([k,l])=>`<th data-s="${k}" style="cursor:pointer">${l}${sk===k?(dir>0?' ↑':' ↓'):''}</th>`).join('')+'<th></th></tr>'+v.map(o=>'<tr>'+C.map(([k])=>`<td><input data-i="${o.i}" data-c="${k}" value="${esc(o.r[k]??'')}" style="width:${k==='name'?150:90}px"></td>`).join('')+`<td><button class="s" data-x="${o.i}">✕</button></td></tr>`).join('')};
- const save=async st=>{if(st==='veröffentlicht'&&!rows.some(r=>r.time||r.split)){$('em2').textContent='Zum Veröffentlichen braucht mindestens eine Zeile Zeit oder Split.';return}const r=await sb.from('submissions').update({rows,status:st}).eq('id',s.id);$('em2').textContent=r.error?r.error.message:'Gespeichert.'};
+ const save=async st=>{if(st==='veröffentlicht'&&!rows.some(r=>r.time||r.split)){$('em2').textContent='Zum Veröffentlichen braucht mindestens eine Zeile Zeit oder Split.';return}const r=await sb.from('submissions').update({rows,status:st}).eq('id',s.id).select('id');$('em2').textContent=r.error?r.error.message:!(r.data||[]).length?'NICHT gespeichert: keine Berechtigung (Rolle prüfen).':(s.status=st,st==='veröffentlicht'?'✓ Veröffentlicht: ab sofort für alle Ruderer sichtbar.':'✓ Gespeichert.')};
  const tab=()=>rows.map(r=>Object.fromEntries(C.map(([k,l])=>[l,r[k]??''])));
  $('etb').oninput=e=>{const i=e.target.closest('[data-i]');if(i)rows[i.dataset.i][i.dataset.c]=i.value};
  $('etb').onclick=e=>{const h=e.target.closest('[data-s]'),x=e.target.closest('[data-x]');
@@ -496,14 +518,14 @@ function nomRows(S,FL,P){const rows=[];
    const we=bestE&&g?findWr(S.D.W,ac,g,a.weight_class||'open','Erg',2000):null;rows.push({a,ac,bestE,lim,wat,miss,fm,ergPct:we?we.record_ms/bestE*100:null})});
  return rows}
 async function listView(){
- app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Athletenliste (nur Lesen)</h2><div class="bar"><label>Altersklasse<select id="lfa"><option value="">Alle</option><option>U17</option><option>U19</option><option>U23</option><option>Elite</option></select></label><label>Geschlecht<select id="lfg"><option value="">Alle</option><option value="w">Frau</option><option value="m">Mann</option></select></label><button class="s" id="tn">Nominierung einblenden</button></div><div class="box w"><table id="lt"><tr><td class="em">Lädt …</td></tr></table></div><p class="em">Reine Leseansicht: Hier kann nichts geändert oder gelöscht werden. Bearbeiten geht unter „Teilnehmer“.</p>';bindOut();
+ app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Athletenliste (nur Lesen)</h2><div class="bar"><label>Suchen<input id="lq" placeholder="Name oder Club"></label><label>Altersklasse<select id="lfa"><option value="">Alle</option><option>U17</option><option>U19</option><option>U23</option><option>Elite</option></select></label><label>Geschlecht<select id="lfg"><option value="">Alle</option><option value="w">Frau</option><option value="m">Mann</option></select></label><button class="s" id="tn">Nominierung einblenden</button></div><div class="box w"><table id="lt"><tr><td class="em">Lädt …</td></tr></table></div><p class="em">Reine Leseansicht: Hier kann nichts geändert oder gelöscht werden. Bearbeiten geht unter „Teilnehmer“.</p>';bindOut();
  const $=i=>document.getElementById(i);$('bk').onclick=homeView;
  let S,FL,sn=false;
  try{S=await loadStats();S.TR=await fetchAll('time_results','*',['event_id','athlete_id']);FL=Object.fromEntries((await fetchAll('athlete_formal','*',['athlete_id'])).map(x=>[x.athlete_id,x.flags||{}]))}catch(e){return $('lt').innerHTML=`<tr><td class="err">${esc(e.message)}</td></tr>`}
  const per={};PROGS.forEach(P=>nomRows(S,FL,P).forEach(r=>(per[r.a.id]=per[r.a.id]||[]).push({P,r})));
  const draw=()=>{$('tn').textContent=sn?'Nominierung ausblenden':'Nominierung einblenden';
-  $('lt').innerHTML='<tr><th>Name</th><th>AK 2027</th><th>m/w</th><th>Gewicht</th><th>Club</th><th>WR 2k Ergo (Altersklasse)</th>'+(sn?'<th>Nominierungs-Richtwerte</th>':'')+'</tr>'+[...S.D.A].filter(a=>(!$('lfa').value||(a.birth_year&&ageClass(a.birth_year,2027)===$('lfa').value))&&(!$('lfg').value||a.gender===$('lfg').value)).sort((x,y)=>x.name.localeCompare(y.name)).map(a=>`<tr><td>${esc(a.name)}</td><td>${a.birth_year?ageClass(a.birth_year,2027):'–'}</td><td>${a.gender||'–'}</td><td>${a.weight_class==='lw'?'Leicht':'Offen'}</td><td>${esc(a.club||'–')}</td><td>${(w=>w?f(w.record_ms):'<span class="em">fehlt</span>')(a.birth_year&&a.gender?findWr(S.D.W,ageClass(a.birth_year,2027),a.gender,a.weight_class||'open','Erg',2000):null)}</td>${sn?`<td style="white-space:normal;min-width:260px">${(per[a.id]||[]).map(({P,r})=>`<div>${esc(P.l)}: ${r.miss.length?'<span style="color:var(--stop)">offen: '+esc(r.miss.join(' · '))+'</span>':'<span style="color:var(--acc)">erfüllt ✓</span>'}</div>`).join('')||'<span class="em">Geburtsjahr fehlt oder kein passendes Programm</span>'}</td>`:''}</tr>`).join('')};
- $('tn').onclick=()=>{sn=!sn;draw()};$('lfa').onchange=draw;$('lfg').onchange=draw;draw();
+  $('lt').innerHTML='<tr><th>Name</th><th>AK 2027</th><th>m/w</th><th>Gewicht</th><th>Club</th><th>WR 2k Ergo (Altersklasse)</th>'+(sn?'<th>Nominierungs-Richtwerte</th>':'')+'</tr>'+[...S.D.A].filter(a=>(!$('lfa').value||(a.birth_year&&ageClass(a.birth_year,2027)===$('lfa').value))&&(!$('lfg').value||a.gender===$('lfg').value)&&(!$('lq').value||(a.name+' '+(a.club||'')).toLowerCase().includes($('lq').value.toLowerCase()))).sort((x,y)=>x.name.localeCompare(y.name)).map(a=>`<tr><td>${esc(a.name)}</td><td>${a.birth_year?ageClass(a.birth_year,2027):'–'}</td><td>${a.gender||'–'}</td><td>${a.weight_class==='lw'?'Leicht':'Offen'}</td><td>${esc(a.club||'–')}</td><td>${(w=>w?f(w.record_ms):'<span class="em">fehlt</span>')(a.birth_year&&a.gender?findWr(S.D.W,ageClass(a.birth_year,2027),a.gender,a.weight_class||'open','Erg',2000):null)}</td>${sn?`<td style="white-space:normal;min-width:260px">${(per[a.id]||[]).map(({P,r})=>`<div>${esc(P.l)}: ${r.miss.length?'<span style="color:var(--stop)">offen: '+esc(r.miss.join(' · '))+'</span>':'<span style="color:var(--acc)">erfüllt ✓</span>'}</div>`).join('')||'<span class="em">Geburtsjahr fehlt oder kein passendes Programm</span>'}</td>`:''}</tr>`).join('')};
+ $('tn').onclick=()=>{sn=!sn;draw()};$('lfa').onchange=draw;$('lfg').onchange=draw;$('lq').oninput=draw;draw();
 }
 const DUR={'30min':1800000,'60min':3600000};
 async function distView(ev,AL,part){
@@ -533,6 +555,60 @@ async function wrView(){
  app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Referenzzeiten (Weltrekorde)</h2><div class="box w" id="wt"><p class="em">Lädt …</p></div>';bindOut();document.getElementById('bk').onclick=homeView;
  const r=await sb.from('world_records').select('*').order('boat_class').order('age_class'),el=document.getElementById('wt');
  el.innerHTML=r.error?`<p class="err">${esc(r.error.message)}</p>`:r.data.length?'<table><tr><th>Altersklasse</th><th>m/w</th><th>Gewicht</th><th>Boot</th><th>Distanz</th><th>Zeit</th><th>Quelle</th></tr>'+r.data.map(w=>`<tr><td>${w.age_class}</td><td>${w.gender}</td><td>${w.weight_class==='lw'?'Leicht':'Offen'}</td><td>${w.boat_class}</td><td>${w.distance_m} m</td><td>${f(w.record_ms)}</td><td>${esc(w.note||'')}</td></tr>`).join('')+'</table>':'<p class="em">Noch keine Referenzzeiten eingetragen.</p>'}
+const LN=n=>{const o=[],mid=Math.ceil(n/2);for(let k=0;k<n;k++)o.push(mid+Math.ceil(k/2)*(k%2?1:-1));return o};
+const tt=v=>(v===''||v==null)?-1:+v;
+async function regView(id){
+ const $=i=>document.getElementById(i);
+ if(!id){
+  app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Regatta-Verwaltung</h2><div class="bar"><label>Neue Regatta<input id="rn" placeholder="Name"></label><button id="ra">Anlegen</button></div><div class="box" id="rl"><p class="em">Lädt …</p></div>';bindOut();
+  $('bk').onclick=homeView;const r=await sb.from('regattas').select('*').order('created_at',{ascending:false});
+  $('rl').innerHTML=r.error?`<p class="err">${esc(r.error.message)}</p>`:(r.data||[]).map(g=>`<div class="row"><span>${esc(g.title)}</span><button class="s" onclick="regView('${g.id}')">Öffnen</button></div>`).join('')||'<p class="em">Noch keine Regatta.</p>';
+  $('ra').onclick=async()=>{const n=$('rn').value.trim();if(!n)return;const q=await sb.from('regattas').insert({title:n}).select('id').single();if(q.error)return alert(q.error.message);regView(q.data.id)};return}
+ const pg=async t=>{let o=[],i=0;for(;;){const r=await sb.from(t).select('*').eq('regatta_id',id).order('id').range(i,i+999);if(r.error)throw r.error;o=o.concat(r.data);if(r.data.length<1000)return o;i+=1000}};
+ let G,E,SL,Q='';
+ app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><div id="rb"><p class="em">Lädt …</p></div>';bindOut();$('bk').onclick=()=>regView();
+ try{const g=await sb.from('regattas').select('*').eq('id',id).single();if(g.error)throw g.error;G=g.data;G.rounds=G.rounds||[];E=await pg('reg_entries');SL=await pg('reg_slots')}catch(e){return $('rb').innerHTML=`<p class="err">${esc(e.message)}</p>`}
+ let EM=Object.fromEntries(E.map(x=>[x.id,x]));
+ $('rb').innerHTML=`<h2>${esc(G.title)}</h2><div class="bar"><label>Suchen (Name/Club)<input id="rq" style="width:220px"></label><span class="em" id="rc"></span></div>
+ <details class="box"><summary><b>1 · Teilnehmer</b></summary><label>Eine Zeile pro Boot/Ruderer, optional „Name;Club“<textarea id="rt" rows="5" style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;box-sizing:border-box"></textarea></label><div class="bar" style="margin-top:8px"><button id="re">Hinzufügen</button></div></details>
+ <details class="box"><summary><b>2 · Runden und Aufstiegsregeln</b></summary><p class="em">Beispiel: Vorlauf: Top 2 pro Lauf + 4 Zeitschnellste, weiter in Halbfinale; Rest in Hoffnungslauf.</p><div class="w"><table id="rr"></table></div><div class="bar"><button class="s" id="rra">+ Runde</button><button id="rrs">Regeln speichern</button></div></details>
+ <div class="bar"><button id="rg0">Runde 1 einteilen</button><button id="rgb">Aufstiegsbaum aktualisieren</button></div><p id="rm" class="err"></p><div id="rres"></div>`;
+ const rm=(t,ok)=>{$('rm').textContent=t||'';$('rm').style.color=ok?'var(--acc)':''};
+ const outcome=r=>{const R=G.rounds[r],s=SL.filter(x=>x.rnd===r);if(!s.length||s.some(x=>!x.dnf&&x.time_ms==null))return null;
+  const H={},o={},rest=[];s.forEach(x=>(H[x.heat]=H[x.heat]||[]).push(x));
+  Object.values(H).forEach(h=>{h.filter(x=>!x.dnf).sort((a,b)=>a.time_ms-b.time_ms).forEach((x,i)=>{if(i<(+R.top||0))o[x.entry_id]='q';else rest.push(x)});h.filter(x=>x.dnf).forEach(x=>o[x.entry_id]='out')});
+  rest.sort((a,b)=>a.time_ms-b.time_ms).forEach((x,i)=>{o[x.entry_id]=i<(+R.fastest||0)?'q':tt(R.lower)>=0?'l':'out'});return o};
+ const seed=(ids,lanes)=>{const nh=Math.ceil(ids.length/lanes),H=Array.from({length:nh},()=>[]);ids.forEach((e,i)=>{const c=i%nh;H[Math.floor(i/nh)%2?nh-1-c:c].push(e)});const out=[];H.forEach((h,hi)=>{const L=LN(h.length);h.forEach((e,k)=>out.push({heat:hi+1,lane:L[k],entry_id:e}))});return out};
+ const put=async(t,ids)=>{const rows=seed(ids,+(G.rounds[t]||{}).lanes||6).map(x=>({regatta_id:id,rnd:t,...x}));
+  const d=await sb.from('reg_slots').delete().eq('regatta_id',id).eq('rnd',t);if(d.error)throw d.error;
+  for(let i=0;i<rows.length;i+=400){const q=await sb.from('reg_slots').insert(rows.slice(i,i+400));if(q.error)throw q.error}};
+ const drawRules=()=>{const opt=v=>'<option value="">–</option>'+G.rounds.map((R,i)=>`<option value="${i}"${String(v)===String(i)?' selected':''}>${esc(R.name||'Runde '+(i+1))}</option>`).join('');
+  $('rr').innerHTML='<tr><th>Runde</th><th>Bahnen</th><th>Top pro Lauf</th><th>+ Zeitschnellste</th><th>Weiter in</th><th>Rest in</th></tr>'+G.rounds.map((R,i)=>`<tr><td><input data-i="${i}" data-k="name" value="${esc(R.name||'')}" style="width:130px"></td><td><input data-i="${i}" data-k="lanes" type="number" value="${R.lanes||6}" style="width:60px"></td><td><input data-i="${i}" data-k="top" type="number" value="${R.top||0}" style="width:60px"></td><td><input data-i="${i}" data-k="fastest" type="number" value="${R.fastest||0}" style="width:60px"></td><td><select data-i="${i}" data-k="to">${opt(R.to)}</select></td><td><select data-i="${i}" data-k="lower">${opt(R.lower)}</select></td></tr>`).join('')};
+ const draw=()=>{const q=Q.toLowerCase(),match=e=>!q||(e.name+' '+(e.club||'')).toLowerCase().includes(q);$('rc').textContent=E.length+' Boote/Ruderer';
+  $('rres').innerHTML=G.rounds.map((R,r)=>{const o=outcome(r),H={},all=SL.filter(x=>x.rnd===r);all.forEach(x=>(H[x.heat]=H[x.heat]||[]).push(x));
+   const hs=Object.keys(H).map(Number).sort((a,b)=>a-b).filter(h=>!q||H[h].some(x=>match(EM[x.entry_id])));
+   return `<details class="box"${r===0||q?' open':''}><summary><b>${esc(R.name||'Runde '+(r+1))}</b> (${Object.keys(H).length} Läufe, ${all.length} Boote)</summary>${hs.map(h=>`<div class="w"><b>Lauf ${h}</b><table><tr><th>Bahn</th><th>Boot / Ruderer</th><th>Club</th><th>Zeit</th><th>DNF</th><th>Ergebnis</th></tr>${H[h].sort((a,b)=>a.lane-b.lane).map(x=>{const e=EM[x.entry_id],st=o?(o[x.entry_id]==='q'?(tt(R.to)>=0?'✓ weiter → '+esc(G.rounds[tt(R.to)].name||''):'✓ platziert'):o[x.entry_id]==='l'?'→ '+esc(G.rounds[tt(R.lower)].name||''):'ausgeschieden'):'';return `<tr${q&&match(e)?' style="background:color-mix(in srgb,var(--acc) 18%,transparent)"':''}><td>${x.lane}</td><td>${esc(e.name)}</td><td>${esc(e.club||'')}</td><td><input data-s="${x.id}" value="${x.time_ms!=null?f(x.time_ms):''}" placeholder="m:ss,t" style="width:90px"></td><td><input type="checkbox" data-d="${x.id}"${x.dnf?' checked':''}></td><td>${st}</td></tr>`}).join('')}</table></div>`).join('')||'<p class="em">Noch nicht eingeteilt.</p>'}</details>`}).join('')||'<p class="em">Lege zuerst unter „2 · Runden“ die Runden an.</p>'};
+ $('rq').oninput=e=>{Q=e.target.value.trim();draw()};
+ $('re').onclick=async()=>{const rows=$('rt').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(x=>{const [n,c]=x.split(';');return {regatta_id:id,name:n.trim(),club:(c||'').trim()||null}});if(!rows.length)return rm('Keine Zeilen gefunden.');
+  for(let i=0;i<rows.length;i+=400){const q=await sb.from('reg_entries').insert(rows.slice(i,i+400));if(q.error)return rm(q.error.message)}
+  E=await pg('reg_entries');EM=Object.fromEntries(E.map(x=>[x.id,x]));$('rt').value='';rm('✓ '+rows.length+' hinzugefügt.',true);draw()};
+ $('rra').onclick=()=>{G.rounds.push({name:'',lanes:6,top:0,fastest:0,to:'',lower:''});drawRules()};
+ $('rr').onchange=e=>{const t=e.target;if(t.dataset.i!=null)G.rounds[+t.dataset.i][t.dataset.k]=t.value};
+ $('rrs').onclick=async()=>{const q=await sb.from('regattas').update({rounds:G.rounds}).eq('id',id).select('id');rm(q.error?q.error.message:!(q.data||[]).length?'NICHT gespeichert: keine Berechtigung.':'✓ Regeln gespeichert.',!q.error&&(q.data||[]).length);drawRules();draw()};
+ $('rg0').onclick=async()=>{try{if(!G.rounds.length)return rm('Bitte zuerst Runden anlegen und speichern.');if(!E.length)return rm('Keine Teilnehmer vorhanden.');
+  if(SL.some(x=>x.rnd===0&&(x.time_ms!=null||x.dnf)))return rm('Runde 1 hat schon Zeiten und wird nicht neu eingeteilt.');
+  if(SL.some(x=>x.rnd===0)&&!confirm('Runde 1 neu einteilen?'))return;
+  await put(0,E.map(x=>x.id));SL=await pg('reg_slots');rm('✓ Runde 1 eingeteilt.',true);draw()}catch(e){rm(e.message)}};
+ $('rgb').onclick=async()=>{try{for(let t=1;t<G.rounds.length;t++){if(SL.some(x=>x.rnd===t&&(x.time_ms!=null||x.dnf)))continue;const items=[];
+   for(let r=0;r<t;r++){const R=G.rounds[r],o=outcome(r);if(!o)continue;SL.filter(x=>x.rnd===r).forEach(x=>{if((o[x.entry_id]==='q'&&tt(R.to)===t)||(o[x.entry_id]==='l'&&tt(R.lower)===t))items.push({e:x.entry_id,t:x.time_ms})})}
+   if(!items.length)continue;items.sort((a,b)=>a.t-b.t);await put(t,items.map(x=>x.e))}
+  SL=await pg('reg_slots');rm('✓ Aufstiegsbaum aktualisiert.',true);draw()}catch(e){rm(e.message)}};
+ $('rres').onchange=async e=>{const t=e.target;
+  if(t.dataset.s){const x=SL.find(z=>z.id===t.dataset.s),v=t.value.trim(),ms=ptime(v);if(v&&!ms)return rm('Zeit bitte als m:ss,t eingeben.');
+   const q=await sb.from('reg_slots').update({time_ms:v?ms:null}).eq('id',x.id).select('id');if(q.error||!(q.data||[]).length)return rm('NICHT gespeichert: '+(q.error?q.error.message:'keine Berechtigung'));x.time_ms=v?ms:null;rm('✓ Zeit gespeichert: '+EM[x.entry_id].name,true)}
+  else if(t.dataset.d){const x=SL.find(z=>z.id===t.dataset.d),q=await sb.from('reg_slots').update({dnf:t.checked}).eq('id',x.id).select('id');if(q.error||!(q.data||[]).length)return rm('NICHT gespeichert.');x.dnf=t.checked;rm('✓ Gespeichert.',true)}};
+ drawRules();draw();
+}
 let ATH=[];
 async function loadAth(){
  const [a,p]=await Promise.all([sb.from('athletes').select('*').order('name'),sb.from('profiles').select('id,name').order('name')]);
