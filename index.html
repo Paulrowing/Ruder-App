@@ -150,7 +150,7 @@ async function eventView(id){
  <div class="adm"><div class="box" id="pl" style="display:none"><div class="bar"><label>Suchen<input id="sq" placeholder="Name"></label><button class="s" id="pa">Alle dabei</button><button class="s" id="pn">Niemand dabei</button></div><div id="pb"></div></div></div>
  <p class="err" id="msg"></p><div id="lst"></div>
  <h2>Ergebnisse</h2><div class="bar"><button class="s" id="so">Sortierung: Zeit</button></div><div class="box w"><table id="tb"></table></div>
- <div class="bar adm"><button id="cp" class="s">Tabelle kopieren</button><button id="csv" class="s">Als Excel/CSV laden</button>${me.role==='admin'?'<button id="dl" class="s">Test löschen</button>':''}</div>`;
+ <div class="bar adm"><button id="ae">Auswertung dieses Tests</button><button id="cp" class="s">Tabelle kopieren</button><button id="xl" class="s">Excel (.xlsx)</button><button id="csv" class="s">CSV</button>${me.role==='admin'?'<button id="dl" class="s">Test löschen</button>':''}</div>`;
  bindOut();
  sb.from('world_records').select('*').then(r=>{WRs=r.data||[];draw()});
  const $=x=>document.getElementById(x),msg=(t,ok)=>{$('msg').textContent=t||'';$('msg').style.color=ok?'var(--acc)':''};
@@ -221,6 +221,8 @@ async function eventView(id){
  $('csv').onclick=()=>{const t=[...$('tb').rows].map(tr=>[...tr.cells].map(c=>'"'+c.textContent.replace(/"/g,'""')+'"').join(';')).join('\r\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+t],{type:'text/csv;charset=utf-8'}));a.download=ev.title.replace(/[^\w\-]+/g,'_')+'.csv';a.click()};
  if($('dl'))$('dl').onclick=async()=>{if(!confirm('Diesen Test mit allen Zeiten endgültig löschen?'))return;const r=await sb.from('events').delete().eq('id',id);if(r.error)msg(r.error.message);else trainerView()};
+ $('xl').onclick=()=>{if(typeof XLSX==='undefined')return alert('Excel-Export nicht geladen.');XLSX.writeFile(XLSX.utils.table_to_book($('tb')),(ev.title.replace(/[^\w\-]+/g,'_')||'test')+'.xlsx')};
+ $('ae').onclick=()=>{F.ev=id;F.dz='';F.ac='';F.g='';F.bt='';statsView()};
  try{wl=await navigator.wakeLock.request('screen')}catch(e){}
  await sync();await load();
  let k=0;poll=setInterval(()=>{document.querySelectorAll('[data-s]').forEach(n=>n.textContent=f((n.dataset.q?+n.dataset.q:Date.now()+off)-n.dataset.s-(+n.dataset.p||0)));k++;if(k%15===0)load();if(k%600===0)sync()},100);
@@ -407,7 +409,7 @@ async function loadSubs(){const el=document.getElementById('sv');if(!el)return;
  const r=await sb.from('submissions').select('*,profiles(name),events(title,discipline),athletes(name,club,birth_year,gender)').order('created_at',{ascending:false});
  if(r.error)return el.innerHTML=`<p class="err">${esc(r.error.message)}</p>`;
  const who=s=>s.athletes?.name||s.profiles?.name||'Unbekannt',ak=s=>s.athletes?.birth_year?ageClass(s.athletes.birth_year,2027):'',op=(a,v)=>a.map(([k,l])=>`<option value="${k}"${k===v?' selected':''}>${l}</option>`).join('');
- el.innerHTML=`<div class="bar"><label>Suchen<input id="sq" value="${esc(SUBQ)}" placeholder="Name oder Club"></label><label>Ordner nach<select id="sg">${op([['test','Test'],['status','Status'],['person','Person']],SUBG)}</select></label><label>AK<select id="sak">${op([['','Alle'],['U17','U17'],['U19','U19'],['U23','U23'],['Elite','Elite']],SUBAK)}</select></label><label>m/w<select id="sgn">${op([['','Alle'],['m','M'],['w','W']],SUBGN)}</select></label><label>Test-Typ<select id="stt">${op([['','Alle']].concat(Object.entries(DZL).filter(x=>x[0]).map(x=>[x[0],x[1]])),SUBTT)}</select></label><label>Sortieren<select id="sso">${op([['date','Datum'],['name','Name'],['ak','AK']],SUBSO)}</select></label></div><div id="sbody"></div>`;
+ el.innerHTML=`<div class="bar"><label>Suchen<input id="sq" value="${esc(SUBQ)}" placeholder="Name oder Club"></label><label>Ordner nach<select id="sg">${op([['test','Test'],['status','Status'],['person','Person']],SUBG)}</select></label><label>AK<select id="sak">${op([['','Alle'],['U17','U17'],['U19','U19'],['U23','U23'],['Elite','Elite']],SUBAK)}</select></label><label>m/w<select id="sgn">${op([['','Alle'],['m','M'],['w','W']],SUBGN)}</select></label><label>Test-Typ<select id="stt">${op([['','Alle']].concat(Object.entries(DZL).filter(x=>x[0]).map(x=>[x[0],x[1]])),SUBTT)}</select></label><label>Sortieren<select id="sso">${op([['date','Datum'],['name','Name'],['ak','AK']],SUBSO)}</select></label><button class="s" id="spa">Alle geprüften veröffentlichen</button></div><div id="sbody"></div>`;
  const draw=()=>{const q=SUBQ.toLowerCase();let L=r.data.map((s,i)=>({s,i})).filter(({s})=>(!q||(who(s)+' '+(s.athletes?.club||'')).toLowerCase().includes(q))&&(!SUBAK||ak(s)===SUBAK)&&(!SUBGN||s.athletes?.gender===SUBGN)&&(!SUBTT||s.events?.discipline===SUBTT));
   if(SUBSO==='name')L.sort((a,b)=>who(a.s).localeCompare(who(b.s)));else if(SUBSO==='ak')L.sort((a,b)=>ak(a.s).localeCompare(ak(b.s))||who(a.s).localeCompare(who(b.s)));
   const key=({s})=>SUBG==='test'?(s.events?.title||'Ohne Test'):SUBG==='person'?who(s):({'neu':'1 · Neu (zu prüfen)','geprüft':'2 · Geprüft','veröffentlicht':'3 · Veröffentlicht'})[s.status],g={};
@@ -415,7 +417,7 @@ async function loadSubs(){const el=document.getElementById('sv');if(!el)return;
   document.getElementById('sbody').innerHTML=Object.keys(g).sort().map(k=>`<details class="box"${SUBG==='status'&&k.startsWith('1')||L.length<15?' open':''}><summary><b>📁 ${esc(k)}</b> (${g[k].length})</summary>${g[k].map(({s,i})=>`<div class="row"><span>${new Date(s.created_at).toLocaleDateString('de-AT')} · ${esc(who(s))} <span class="em">${ak(s)} ${s.athletes?.club?'· '+esc(s.athletes.club):''} · ${s.status}${SUBG!=='test'?' · '+esc(s.events?.title||''):''}</span></span><button class="s" data-o="${i}">Öffnen</button></div>`).join('')}</details>`).join('')||'<p class="em">Keine Einreichungen gefunden.</p>'};
  el.oninput=e=>{if(e.target.id==='sq'){SUBQ=e.target.value.trim();draw()}};
  el.onchange=e=>{const m={sg:'SUBG',sak:'SUBAK',sgn:'SUBGN',stt:'SUBTT',sso:'SUBSO'}[e.target.id];if(!m)return;({sg:()=>SUBG=e.target.value,sak:()=>SUBAK=e.target.value,sgn:()=>SUBGN=e.target.value,stt:()=>SUBTT=e.target.value,sso:()=>SUBSO=e.target.value})[e.target.id]();draw()};
- el.onclick=e=>{const b=e.target.closest('[data-o]');if(b)subEdit(r.data[b.dataset.o])};
+ el.onclick=async e=>{if(e.target.id==='spa'){if(!confirm('Alle geprüften Einreichungen jetzt für alle Ruderer veröffentlichen?'))return;const q=await sb.from('submissions').update({status:'veröffentlicht'}).eq('status','geprüft').select('id');alert(q.error?'NICHT gespeichert: '+dbErr(q.error):(q.data||[]).length?'✓ '+q.data.length+' Einreichungen veröffentlicht.':'Keine geprüften Einreichungen vorhanden (oder keine Berechtigung).');loadSubs();return}const b=e.target.closest('[data-o]');if(b)subEdit(r.data[b.dataset.o])};
  draw()}
 async function loadPub(el){const r=await sb.from('submissions').select('rows,events(title),created_at').eq('status','veröffentlicht').order('created_at',{ascending:false});
  if(r.error)return el.innerHTML=`<p class="err">${esc(r.error.message)}</p>`;
@@ -578,9 +580,9 @@ async function regView(id){
  try{const g=await sb.from('regattas').select('*').eq('id',id).single();if(g.error)throw g.error;G=g.data;G.rounds=G.rounds||[];E=await pg('reg_entries');SL=await pg('reg_slots')}catch(e){return $('rb').innerHTML=`<p class="err">${esc(e.message)}</p>`}
  let EM=Object.fromEntries(E.map(x=>[x.id,x]));
  $('rb').innerHTML=`<h2>${esc(G.title||G.name||'Regatta')}</h2><div class="bar"><label>Suchen (Name/Club)<input id="rq" style="width:220px"></label><span class="em" id="rc"></span></div>
- <details class="box"><summary><b>1 · Teilnehmer</b></summary><label>Eine Zeile pro Boot/Ruderer, optional „Name;Club“<textarea id="rt" rows="5" style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;box-sizing:border-box"></textarea></label><div class="bar" style="margin-top:8px"><button id="re">Hinzufügen</button></div></details>
+ <details class="box"><summary><b>1 · Teilnehmer</b></summary><label>Eine Zeile pro Boot/Ruderer: „Name;Club;AK;m/w;Boot“, z. B. Mayer Anna;RC Wien;U19;w;1x<textarea id="rt" rows="5" style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;box-sizing:border-box"></textarea></label><div class="bar" style="margin-top:8px"><button id="re">Hinzufügen</button></div></details>
  <details class="box"><summary><b>2 · Runden und Aufstiegsregeln</b></summary><p class="em">Beispiel: Vorlauf: Top 2 pro Lauf + 4 Zeitschnellste, weiter in Halbfinale; Rest in Hoffnungslauf.</p><div class="w"><table id="rr"></table></div><div class="bar"><button class="s" id="rra">+ Runde</button><button id="rrs">Regeln speichern</button></div></details>
- <div class="bar"><button id="rg0">Runde 1 einteilen</button><button id="rgb">Aufstiegsbaum aktualisieren</button></div><p id="rm" class="err"></p><div id="rres"></div>`;
+ <div class="bar"><button class="s" id="rsb">Regatta-Auswertung</button><button id="rg0">Runde 1 einteilen</button><button id="rgb">Aufstiegsbaum aktualisieren</button></div><p id="rm" class="err"></p><div id="rres"></div>`;
  const rm=(t,ok)=>{$('rm').textContent=t||'';$('rm').style.color=ok?'var(--acc)':''};
  const outcome=r=>{const R=G.rounds[r],s=SL.filter(x=>x.rnd===r);if(!s.length||s.some(x=>!x.dnf&&x.time_ms==null))return null;
   const H={},o={},rest=[];s.forEach(x=>(H[x.heat]=H[x.heat]||[]).push(x));
@@ -596,8 +598,9 @@ async function regView(id){
   $('rres').innerHTML=G.rounds.map((R,r)=>{const o=outcome(r),H={},all=SL.filter(x=>x.rnd===r);all.forEach(x=>(H[x.heat]=H[x.heat]||[]).push(x));
    const hs=Object.keys(H).map(Number).sort((a,b)=>a-b).filter(h=>!q||H[h].some(x=>match(EM[x.entry_id])));
    return `<details class="box"${r===0||q?' open':''}><summary><b>${esc(R.name||'Runde '+(r+1))}</b> (${Object.keys(H).length} Läufe, ${all.length} Boote)</summary>${hs.map(h=>`<div class="w"><b>Lauf ${h}</b><table><tr><th>Bahn</th><th>Boot / Ruderer</th><th>Club</th><th>Zeit</th><th>DNF</th><th>Ergebnis</th></tr>${H[h].sort((a,b)=>a.lane-b.lane).map(x=>{const e=EM[x.entry_id],st=o?(o[x.entry_id]==='q'?(tt(R.to)>=0?'✓ weiter → '+esc(G.rounds[tt(R.to)].name||''):'✓ platziert'):o[x.entry_id]==='l'?'→ '+esc(G.rounds[tt(R.lower)].name||''):'ausgeschieden'):'';return `<tr${q&&match(e)?' style="background:color-mix(in srgb,var(--acc) 18%,transparent)"':''}><td>${x.lane}</td><td>${esc(e.name)}</td><td>${esc(e.club||'')}</td><td><input data-s="${x.id}" value="${x.time_ms!=null?f(x.time_ms):''}" placeholder="m:ss,t" style="width:90px"></td><td><input type="checkbox" data-d="${x.id}"${x.dnf?' checked':''}></td><td>${st}</td></tr>`}).join('')}</table></div>`).join('')||'<p class="em">Noch nicht eingeteilt.</p>'}</details>`}).join('')||'<p class="em">Lege zuerst unter „2 · Runden“ die Runden an.</p>'};
+ $('rsb').onclick=()=>regStats(id);
  $('rq').oninput=e=>{Q=e.target.value.trim();draw()};
- $('re').onclick=async()=>{const rows=$('rt').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(x=>{const [n,c]=x.split(';');return {regatta_id:id,name:n.trim(),club:(c||'').trim()||null}});if(!rows.length)return rm('Keine Zeilen gefunden.');
+ $('re').onclick=async()=>{const rows=$('rt').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(x=>{const [n,c,ak,g,b]=x.split(';').map(y=>(y||'').trim());return {regatta_id:id,name:n,club:c||null,ak:ACS.includes(ak)?ak:null,gender:/^m/i.test(g)?'m':/^[wf]/i.test(g)?'w':null,boat:BOATS.includes(b)?b:null}});if(!rows.length)return rm('Keine Zeilen gefunden.');
   for(let i=0;i<rows.length;i+=400){const q=await sb.from('reg_entries').insert(rows.slice(i,i+400));if(q.error)return rm(q.error.message)}
   E=await pg('reg_entries');EM=Object.fromEntries(E.map(x=>[x.id,x]));$('rt').value='';rm('✓ '+rows.length+' hinzugefügt.',true);draw()};
  $('rra').onclick=()=>{G.rounds.push({name:'',lanes:6,top:0,fastest:0,to:'',lower:''});drawRules()};
@@ -633,6 +636,35 @@ async function gesamtView(){
  $('gx').disabled=$('gc').disabled=!D.length;
  $('gx').onclick=()=>{if(typeof XLSX==='undefined')return alert('Excel-Export nicht geladen.');const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([H].concat(D)),'Gesamtauswertung');XLSX.writeFile(wb,'gesamtauswertung.xlsx')};
  $('gc').onclick=()=>{const t=[H].concat(D).map(q=>q.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(';')).join('\r\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+t],{type:'text/csv;charset=utf-8'}));a.download='gesamtauswertung.csv';a.click()};
+}
+async function regStats(id){
+ app.innerHTML=header()+'<button class="s" id="bk">Zurück zur Regatta</button><h2>Regatta-Auswertung</h2><div class="bar" id="rf"><p class="em">Lädt …</p></div><div class="box"><div id="rch"></div></div><div class="box w"><table id="rt2"></table></div><div class="bar"><button id="rx">Excel (.xlsx)</button><button class="s" id="rcv">CSV</button></div><p class="err" id="rem"></p>';bindOut();
+ const $=i=>document.getElementById(i);$('bk').onclick=()=>regView(id);
+ const pg=async t=>{let o=[],i=0;for(;;){const r=await sb.from(t).select('*').eq('regatta_id',id).order('id').range(i,i+999);if(r.error)throw r.error;o=o.concat(r.data);if(r.data.length<1000)return o;i+=1000}};
+ let G,E,SL,W;
+ try{const g=await sb.from('regattas').select('*').eq('id',id).single();if(g.error)throw g.error;G=g.data;E=await pg('reg_entries');SL=await pg('reg_slots');const w=await sb.from('world_records').select('*');W=w.data||[]}catch(e){return $('rf').innerHTML=`<p class="err">${esc(dbErr(e))}</p>`}
+ const best={};SL.forEach(x=>{if(!x.dnf&&x.time_ms!=null&&(best[x.entry_id]==null||x.time_ms<best[x.entry_id]))best[x.entry_id]=x.time_ms});
+ const st={q:'',ak:'',g:'',bt:'',key:'time',dir:1},op=(a,v)=>a.map(([k,l])=>`<option value="${k}"${k===v?' selected':''}>${l}</option>`).join('');
+ $('rf').innerHTML=`<label>Distanz (m)<input id="rdi" type="number" value="${G.distance_m||2000}" style="width:100px"></label><label>Suchen<input id="rq2" placeholder="Name oder Club"></label><label>Altersklasse<select id="rak">${op([['','Alle']].concat(ACS.map(a=>[a,a])),'')}</select></label><label>Geschlecht<select id="rgn">${op([['','Alle'],['m','M'],['w','W']],'')}</select></label><label>Bootsklasse<select id="rbt">${op([['','Alle']].concat(BOATS.map(a=>[a,a])),'')}</select></label><label>Sortieren nach<select id="rky">${op([['time','Zeit / Split'],['pct','% WR'],['name','Name']],'time')}</select></label><button class="s" id="rdr">↑ aufsteigend</button>`;
+ let H=[],D=[];
+ const upd=()=>{const dist=+$('rdi').value||2000,q=st.q.toLowerCase();
+  const all=E.filter(e=>best[e.id]!=null).map(e=>{const w=findWr(W,e.ak,e.gender,'open',e.boat,dist);return {e,fin:best[e.id],wr:w?w.record_ms:null}});
+  let rows=all.filter(r=>(!st.ak||r.e.ak===st.ak)&&(!st.g||r.e.gender===st.g)&&(!st.bt||r.e.boat===st.bt)&&(!q||(r.e.name+' '+(r.e.club||'')).toLowerCase().includes(q)));
+  [...rows].sort((a,b)=>a.fin-b.fin).forEach((r,i)=>r.pl=i+1);
+  rows.forEach(r=>{r.pct=r.wr?r.wr/r.fin*100:null;const g=all.filter(z=>z.e.ak===r.e.ak&&z.e.gender===r.e.gender&&z.e.boat===r.e.boat).sort((a,b)=>a.fin-b.fin);r.akr=r.e.ak?g.indexOf(r)+1+'/'+g.length:'–'});
+  const kf={time:r=>r.fin,pct:r=>r.pct,name:r=>r.e.name}[st.key];
+  rows.sort((x,y)=>{const a=kf(x),b=kf(y);if(a==null&&b==null)return 0;if(a==null)return 1;if(b==null)return -1;return(typeof a==='string'?a.localeCompare(b):a-b)*st.dir});
+  $('rdr').textContent=st.dir===1?'↑ aufsteigend':'↓ absteigend';
+  H=['Platz','Rang in AK','Name','Club','AK','m/w','Boot','Zeit','Split/500 m','WR','Diff. WR','% WR'];
+  D=rows.map(r=>[r.pl,r.akr,r.e.name,r.e.club||'',r.e.ak||'',r.e.gender||'',r.e.boat||'',f(r.fin),sp(r.fin,dist),r.wr?f(r.wr):'fehlt',r.wr?(r.fin>=r.wr?'+':'−')+f(Math.abs(r.fin-r.wr)):'–',r.pct?pc(r.pct):'–']);
+  $('rt2').innerHTML='<tr>'+H.map(h=>`<th>${h}</th>`).join('')+'</tr>'+D.map(x=>'<tr>'+x.map(c=>`<td>${esc(c)}</td>`).join('')+'</tr>').join('')||'';
+  $('rch').innerHTML=rows.length?barSvg(rows.slice(0,30).map(r=>({a:{name:r.e.name},fin:r.fin,wr:r.wr})))+(rows.length>30?'<p class="em">Grafik zeigt die ersten 30 von '+rows.length+'.</p>':''):'<p class="em">Noch keine Zeiten in dieser Auswahl.</p>'};
+ $('rf').onchange=async e=>{const t=e.target;if(t.id==='rdi'){const d=+t.value;if(!(Number.isInteger(d)&&d>=100&&d<=100000)){$('rem').textContent='Distanz bitte in ganzen Metern angeben.';return}const q=await sb.from('regattas').update({distance_m:d}).eq('id',id).select('id');$('rem').textContent=q.error?'NICHT gespeichert: '+dbErr(q.error):'';}
+  else if(t.id==='rak')st.ak=t.value;else if(t.id==='rgn')st.g=t.value;else if(t.id==='rbt')st.bt=t.value;else if(t.id==='rky')st.key=t.value;upd()};
+ $('rq2').oninput=e=>{st.q=e.target.value.trim();upd()};$('rdr').onclick=()=>{st.dir=-st.dir;upd()};
+ $('rx').onclick=()=>{if(typeof XLSX==='undefined')return alert('Excel-Export nicht geladen.');const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([H].concat(D)),'Regatta');XLSX.writeFile(wb,'regatta-auswertung.xlsx')};
+ $('rcv').onclick=()=>{const t=[H].concat(D).map(q=>q.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(';')).join('\r\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+t],{type:'text/csv;charset=utf-8'}));a.download='regatta-auswertung.csv';a.click()};
+ upd();
 }
 let ATH=[];
 async function loadAth(){
