@@ -107,10 +107,10 @@ async function loadEv(){
  el.innerHTML=`<div class="bar"><label>Suchen<input id="eq" value="${esc(EVQ)}" placeholder="Test"></label><label>Test-Typ<select id="et2"><option value="">Alle</option>${Object.entries(DZL).map(([k,v])=>`<option value="${k}"${EVT===k?' selected':''}>${v}</option>`).join('')}</select></label></div><div id="evb"></div>`;
  const draw=()=>{const L=data.filter(e=>(!EVQ||e.title.toLowerCase().includes(EVQ))&&(!EVT||(e.discipline||'')===EVT)),g={};
   L.forEach(e=>(g[DZL[e.discipline||'']]=g[DZL[e.discipline||'']]||[]).push(e));
-  document.getElementById('evb').innerHTML=Object.keys(g).map(k=>`<details class="box" open><summary><b>📁 ${esc(k)}</b> (${g[k].length})</summary>${g[k].map(e=>`<div class="row" style="flex-wrap:wrap"><span>${esc(e.title)} <span class="em">${new Date(e.created_at).toLocaleDateString('de-AT')}</span></span><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="s" data-t="published" data-e="${e.id}">${e.published?'Schiedsrichter: AN':'Schiedsrichter: AUS'}</button><button class="s" data-t="upload_open" data-e="${e.id}">${e.upload_open?'Upload: OFFEN':'Upload: GESPERRT'}</button><button class="s" onclick="eventView('${e.id}')">Öffnen</button></span></div>`).join('')}</details>`).join('')||'<p class="em">Keine Tests gefunden.</p>'};
+  document.getElementById('evb').innerHTML=Object.keys(g).map(k=>`<details class="box" open><summary><b>📁 ${esc(k)}</b> (${g[k].length})</summary>${g[k].map(e=>`<div class="row" style="flex-wrap:wrap"><span>${esc(e.title)} <span class="em">${new Date(e.created_at).toLocaleDateString('de-AT')}</span></span><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="s" data-t="published" data-e="${e.id}">${e.published?'Schiedsrichter: AN':'Schiedsrichter: AUS'}</button><button class="s" data-t="upload_open" data-e="${e.id}">${e.upload_open?'Upload: OFFEN':'Upload: GESPERRT'}</button><button class="s" data-x="${e.id}">Excel</button><button class="s" onclick="eventView('${e.id}')">Öffnen</button></span></div>`).join('')}</details>`).join('')||'<p class="em">Keine Tests gefunden.</p>'};
  document.getElementById('eq').oninput=e=>{EVQ=e.target.value.trim().toLowerCase();draw()};
  document.getElementById('et2').onchange=e=>{EVT=e.target.value;draw()};
- el.onclick=async e=>{const b=e.target.closest('[data-t]');if(!b)return;const ev=data.find(x=>x.id===b.dataset.e),k=b.dataset.t,r=await sb.from('events').update({[k]:!ev[k]}).eq('id',ev.id).select('id');
+ el.onclick=async e=>{const xb=e.target.closest('[data-x]');if(xb){exportEvent(xb.dataset.x);return}const b=e.target.closest('[data-t]');if(!b)return;const ev=data.find(x=>x.id===b.dataset.e),k=b.dataset.t,r=await sb.from('events').update({[k]:!ev[k]}).eq('id',ev.id).select('id');
   if(r.error||!(r.data||[]).length)return alert('NICHT gespeichert: '+(r.error?dbErr(r.error):'keine Berechtigung (nur ÖRV-Trainer oder Admin).'));loadEv()};
  draw();
 }
@@ -139,16 +139,16 @@ async function eventView(id){
  const [a,b,c]=await Promise.all([sb.from('events').select('*').eq('id',id).single(),sb.from('athletes').select('id,name,birth_year,gender,weight_class').order('name'),sb.from('event_athletes').select('athlete_id,boat_class').eq('event_id',id)]);
  if(a.error)return alert(a.error.message);
  if(['30min','60min'].includes(a.data.discipline))return distView(a.data,b.data||[],new Set((c.data||[]).map(x=>x.athlete_id)));
- let ev=a.data,AL=b.data||[],part=new Set((c.data||[]).map(x=>x.athlete_id)),bc=Object.fromEntries((c.data||[]).map(x=>[x.athlete_id,x.boat_class])),WRs=[],sortWr=false,marks=[],mode='all',clockOk=false;
+ let ev=a.data,AL=b.data||[],part=new Set((c.data||[]).map(x=>x.athlete_id)),bc=Object.fromEntries((c.data||[]).map(x=>[x.athlete_id,x.boat_class])),WRs=[],sortWr=false,marks=[],mode='all',clockOk=false,SQ='';
  try{mode=localStorage.getItem('mode')||'all'}catch(e){}
  if(me.role==='referee'&&mode==='all')mode='start';
  app.innerHTML=header()+`<button class="s" id="bk">Zurück</button><h2>${esc(ev.title)} <span class="em" style="font-size:17px" id="cnt"></span></h2>
- <div class="bar"><label>Meine Aufgabe auf diesem Gerät<select id="md">${me.role==='referee'?'':'<option value="all">ÖRV-Trainer: alles</option>'}<option value="start">Nur Start</option><option value="lap">Nur Zwischenzeit</option><option value="fin">Nur Ziel</option><option value="pause">Nur Pause/Wende</option></select></label>
+ <div class="bar"><label>Suchen<input id="esq" placeholder="Name" style="width:150px"></label><label>Meine Aufgabe auf diesem Gerät<select id="md">${me.role==='referee'?'':'<option value="all">ÖRV-Trainer: alles</option>'}<option value="start">Nur Start</option><option value="lap">Nur Zwischenzeit</option><option value="fin">Nur Ziel</option><option value="pause">Nur Pause/Wende</option></select></label>
  <label class="adm">Distanz (m)<input id="dd" type="number" value="${ev.distance_m}" style="width:100px"></label>
  <label class="adm">Abschnitt (m)<input id="ss" type="number" value="${ev.section_m}" style="width:100px"></label>
  <button class="s adm" id="tp">Teilnehmer ändern</button><button class="s adm" id="pub1"></button><button class="s adm" id="pub2"></button><button id="all">Alle starten</button></div>
- <div class="adm"><div class="box" id="pl" style="display:none"><div class="bar"><label>Suchen<input id="sq" placeholder="Name"></label><button class="s" id="pa">Alle dabei</button><button class="s" id="pn">Niemand dabei</button></div><div id="pb"></div></div></div>
- <p class="err" id="msg"></p><div id="lst"></div>
+ <div class="adm"><div class="box" id="pl" style="display:none"><div class="bar"><label>Suchen<input id="sq" placeholder="Name"></label><button class="s" id="pa">Alle dabei</button><button class="s" id="pn">Niemand dabei</button></div><div class="bar"><input type="file" id="pup" accept=".csv,.txt,.xlsx,.xls" style="width:auto"><button class="s" id="pul">Startliste hochladen</button></div><p class="em" id="pum"></p><div id="pb"></div></div></div>
+ <p class="err" id="msg"></p><div id="done"></div><div id="lst"></div>
  <h2>Ergebnisse</h2><div class="bar"><button class="s" id="so">Sortierung: Zeit</button></div><div class="box w"><table id="tb"></table></div>
  <div class="bar adm"><button id="ae">Auswertung dieses Tests</button><button id="cp" class="s">Tabelle kopieren</button><button id="xl" class="s">Excel (.xlsx)</button><button id="csv" class="s">CSV</button>${me.role==='admin'?'<button id="dl" class="s">Test löschen</button>':''}</div>`;
  bindOut();
@@ -182,7 +182,7 @@ async function eventView(id){
    if(mode!=='all'&&l){const c=mode==='start'?'✓ Start '+new Date(l.s).toLocaleTimeString('de-AT'):mode==='lap'?(l.laps.length?'✓ Zwischenzeit '+f(l.laps[l.laps.length-1]):''):mode==='fin'?(l.fin!=null?'✓ Ziel '+f(l.fin):''):(l.pause?'Pausen gesamt '+f(l.pause):'');if(c)bt+=`<b style="flex:1;align-self:center;color:var(--acc);font-size:20px">${c}</b>`}
    if(mode==='all'?rs.length:marks.some(m=>m.rider_id===r.id&&(m.kind===mode||(mode==='pause'&&m.kind==='resume'))))bt+=`<button class="s" data-a="undo" data-r="${r.id}">Rückgängig</button>`;
    const lp=rs.map((p,i)=>`${rs.length>1?'Lauf '+(i+1)+': ':''}${p.fin!=null?(p.pause?'Netto ':'')+f(p.fin)+' ('+sp(p.fin,ev.distance_m)+'/500 m)'+(p.pause?` · Brutto ${f(p.gross)} · Pausen ${f(p.pause)}`:''):'läuft'}`).join('<br>');
-   return `<div class="r${mode!=='all'?' big':''}"><div class="top"><span class="nm">${esc(r.name)}</span>${t}</div>${mode==='all'?`<select data-b="${r.id}" style="margin-top:6px">${BOATS.map(b=>`<option${(bc[r.id]||ev.boat_class)===b?' selected':''}>${b}</option>`).join('')}</select>`:''}<div class="btns">${bt}</div>${lp?`<div class="lp">${lp}</div>`:''}</div>`}).join(''):'<p class="em">Keine Teilnehmer. Über „Teilnehmer ändern“ auswählen, wer dabei ist.</p>';
+   return `<div class="r${mode!=='all'?' big':''}"${SQ&&!r.name.toLowerCase().includes(SQ)?' style="display:none"':''}><div class="top"><span class="nm">${esc(r.name)}</span>${t}</div>${mode==='all'?`<select data-b="${r.id}" style="margin-top:6px">${BOATS.map(b=>`<option${(bc[r.id]||ev.boat_class)===b?' selected':''}>${b}</option>`).join('')}</select>`:''}<div class="btns">${bt}</div>${lp?`<div class="lp">${lp}</div>`:''}</div>`}).join(''):'<p class="em">Keine Teilnehmer. Über „Teilnehmer ändern“ auswählen, wer dabei ist.</p>';
   const aOf=Object.fromEntries(AL.map(x=>[x.id,x])),yr=new Date(ev.created_at).getFullYear();
   rows.forEach(x=>{const a=aOf[x.r.id]||{},bt=bc[x.r.id]||ev.boat_class,ac=ageClass(a.birth_year,yr),w=a.weight_class||'open';
    const m=k=>k.gender===a.gender&&k.weight_class===w&&k.boat_class===bt&&k.distance_m===ev.distance_m;
@@ -194,7 +194,7 @@ async function eventView(id){
   const n=Math.max(0,...rows.map(x=>x.p.laps.length));
   let h='<tr><th>Platz</th><th>Name</th><th>AK</th><th>Boot</th><th>Gesamt</th><th>Split/500 m</th><th>WR</th><th>Diff. WR</th><th>% WR</th>'+Array.from({length:n},(_,k)=>`<th>Abschnitt ${k+1}</th>`).join('')+'</tr>';
   rows.forEach(x=>{const s=secsOf(x.p,ev),fin=x.p.fin;h+=`<tr><td>${x.pl}</td><td>${esc(x.r.name)}</td><td>${x.ac||'–'}</td><td>${x.bt}</td><td>${fin!=null?f(fin):'läuft'}</td><td>${fin!=null?sp(fin,ev.distance_m):'–'}</td><td>${x.wr?f(x.wr)+(x.wl?' ('+x.wl+')':''):'–'}</td><td>${x.wr&&fin!=null?(fin>=x.wr?'+':'−')+f(Math.abs(fin-x.wr)):'–'}</td><td>${x.pct?x.pct.toFixed(1).replace('.',',')+' %':'–'}</td>`+Array.from({length:n},(_,k)=>`<td>${s[k]?f(s[k].t):'–'}</td>`).join('')+'</tr>'});
-  $('tb').innerHTML=h};
+  $('tb').innerHTML=h;const pp=ps();$('done').innerHTML=pp.length&&pp.every(r=>{const q=rp(r);return q.length&&q[q.length-1].fin!=null})?`<div class="box"><b>Alle im Ziel ✓</b> <button onclick="document.getElementById('xl').click()">Ergebnisliste als Excel herunterladen</button></div>`:''};
  const load=async()=>{const r=await sb.from('marks').select('id,rider_id,kind,t').eq('event_id',id).order('t');if(r.error)msg(r.error.message);else{marks=r.data;draw()}};
  $('lst').onclick=async e=>{const b=e.target.closest('button');if(!b)return;const r=b.dataset.r,a=b.dataset.a;
   if(a==='undo'){if(!confirm('Bist du sicher, dass du diese Zeitnahme rückgängig machen willst?'))return;let l=marks.filter(m=>m.rider_id===r&&(mode==='all'||m.kind===mode||(mode==='pause'&&m.kind==='resume'))).pop();if(l&&String(l.id).startsWith('tmp')){await load();l=marks.filter(m=>m.rider_id===r&&(mode==='all'||m.kind===mode||(mode==='pause'&&m.kind==='resume'))).pop()}
@@ -213,7 +213,18 @@ async function eventView(id){
   else{part.delete(aid);draw();await sb.from('event_athletes').delete().eq('event_id',id).eq('athlete_id',aid)}};
  $('pa').onclick=async()=>{AL.forEach(x=>part.add(x.id));draw();drawPl();await sb.from('event_athletes').upsert(AL.map(x=>({event_id:id,athlete_id:x.id})))};
  $('pn').onclick=async()=>{part.clear();draw();drawPl();await sb.from('event_athletes').delete().eq('event_id',id)};
+ $('pul').onclick=async()=>{const fl=$('pup').files[0];if(!fl)return $('pum').textContent='Bitte zuerst eine Datei wählen (Excel, CSV oder Text).';
+  try{const L=await readNames(fl);if(!L.length)return $('pum').textContent='Keine Namen in der Datei gefunden.';
+   const key=n=>n.toLowerCase().split(/\s+/).filter(Boolean).sort().join(' '),M=new Map(AL.map(a=>[key(a.name),a])),hit=[],miss=[],seen=new Set();
+   L.forEach(x=>{const k=key(x.name);if(seen.has(k))return;seen.add(k);const a=M.get(k);a?hit.push(a):miss.push(x)});
+   if(!confirm(hit.length+' Personen gefunden'+(miss.length?', '+miss.length+' nicht in der Teilnehmerliste ('+miss.slice(0,5).map(x=>x.name).join(', ')+(miss.length>5?' …':'')+')':'')+'. Diese starten, bisherige Teilnehmer dieses Tests werden ersetzt. Fortfahren?'))return;
+   let add=hit.slice();
+   if(miss.length&&confirm(miss.length+' unbekannte Namen als neue Teilnehmer anlegen?')){const q=await sb.from('athletes').insert(miss.map(x=>({name:x.name,club:CLUBS.includes(x.club)?x.club:null}))).select('id,name');if(q.error)throw q.error;add=add.concat(q.data);AL=AL.concat(q.data)}
+   const d=await sb.from('event_athletes').delete().eq('event_id',id);if(d.error)throw d.error;
+   const n=await sb.from('event_athletes').insert(add.map(a=>({event_id:id,athlete_id:a.id})));if(n.error)throw n.error;
+   part=new Set(add.map(a=>a.id));draw();drawPl();$('pum').textContent='✓ '+add.length+' Teilnehmer für diesen Test gesetzt.'}catch(e){$('pum').textContent='Fehler: '+dbErr(e)}};
  $('bk').onclick=me.role==='referee'?refView:trainerView;
+ $('esq').oninput=e=>{SQ=e.target.value.trim().toLowerCase();draw()};
  const tg=(bid,k,on,off)=>{const b=$(bid),sh=()=>b.textContent=ev[k]?on:off;sh();b.onclick=async()=>{const r=await sb.from('events').update({[k]:!ev[k]}).eq('id',id).select('id');if(r.error)return msg('NICHT gespeichert: '+dbErr(r.error));if(!(r.data||[]).length)return msg('NICHT gespeichert: keine Berechtigung (nur ÖRV-Trainer oder Admin).');ev[k]=!ev[k];sh();msg('✓ Gespeichert',true)}};
  tg('pub1','published','Schiedsrichter-Freigabe: AN','Schiedsrichter-Freigabe: AUS');tg('pub2','upload_open','Upload für Ruderer: OFFEN','Upload für Ruderer: GESPERRT');
  $('cp').onclick=async()=>{const t=[...$('tb').rows].map(tr=>[...tr.cells].map(c=>c.textContent).join('\t')).join('\n');
@@ -580,7 +591,7 @@ async function regView(id){
  try{const g=await sb.from('regattas').select('*').eq('id',id).single();if(g.error)throw g.error;G=g.data;G.rounds=G.rounds||[];E=await pg('reg_entries');SL=await pg('reg_slots')}catch(e){return $('rb').innerHTML=`<p class="err">${esc(e.message)}</p>`}
  let EM=Object.fromEntries(E.map(x=>[x.id,x]));
  $('rb').innerHTML=`<h2>${esc(G.title||G.name||'Regatta')}</h2><div class="bar"><label>Suchen (Name/Club)<input id="rq" style="width:220px"></label><span class="em" id="rc"></span></div>
- <details class="box"><summary><b>1 · Teilnehmer</b></summary><label>Eine Zeile pro Boot/Ruderer: „Name;Club;AK;m/w;Boot“, z. B. Mayer Anna;RC Wien;U19;w;1x<textarea id="rt" rows="5" style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;box-sizing:border-box"></textarea></label><div class="bar" style="margin-top:8px"><button id="re">Hinzufügen</button></div></details>
+ <details class="box"><summary><b>1 · Teilnehmer</b></summary><label>Eine Zeile pro Boot/Ruderer: „Name;Club;AK;m/w;Boot“, z. B. Mayer Anna;RC Wien;U19;w;1x<textarea id="rt" rows="5" style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;box-sizing:border-box"></textarea></label><div class="bar" style="margin-top:8px"><input type="file" id="rfu" accept=".csv,.txt,.xlsx,.xls" style="width:auto"><button id="re">Hinzufügen</button></div></details>
  <details class="box"><summary><b>2 · Runden und Aufstiegsregeln</b></summary><p class="em">Beispiel: Vorlauf: Top 2 pro Lauf + 4 Zeitschnellste, weiter in Halbfinale; Rest in Hoffnungslauf.</p><div class="w"><table id="rr"></table></div><div class="bar"><button class="s" id="rra">+ Runde</button><button id="rrs">Regeln speichern</button></div></details>
  <div class="bar"><button class="s" id="rsb">Regatta-Auswertung</button><button id="rg0">Runde 1 einteilen</button><button id="rgb">Aufstiegsbaum aktualisieren</button></div><p id="rm" class="err"></p><div id="rres"></div>`;
  const rm=(t,ok)=>{$('rm').textContent=t||'';$('rm').style.color=ok?'var(--acc)':''};
@@ -597,7 +608,7 @@ async function regView(id){
  const draw=()=>{const q=Q.toLowerCase(),match=e=>!q||(e.name+' '+(e.club||'')).toLowerCase().includes(q);$('rc').textContent=E.length+' Boote/Ruderer';
   $('rres').innerHTML=G.rounds.map((R,r)=>{const o=outcome(r),H={},all=SL.filter(x=>x.rnd===r);all.forEach(x=>(H[x.heat]=H[x.heat]||[]).push(x));
    const hs=Object.keys(H).map(Number).sort((a,b)=>a-b).filter(h=>!q||H[h].some(x=>match(EM[x.entry_id])));
-   return `<details class="box"${r===0||q?' open':''}><summary><b>${esc(R.name||'Runde '+(r+1))}</b> (${Object.keys(H).length} Läufe, ${all.length} Boote)</summary>${hs.map(h=>`<div class="w"><b>Lauf ${h}</b><table><tr><th>Bahn</th><th>Boot / Ruderer</th><th>Club</th><th>Zeit</th><th>DNF</th><th>Ergebnis</th></tr>${H[h].sort((a,b)=>a.lane-b.lane).map(x=>{const e=EM[x.entry_id],st=o?(o[x.entry_id]==='q'?(tt(R.to)>=0?'✓ weiter → '+esc(G.rounds[tt(R.to)].name||''):'✓ platziert'):o[x.entry_id]==='l'?'→ '+esc(G.rounds[tt(R.lower)].name||''):'ausgeschieden'):'';return `<tr${q&&match(e)?' style="background:color-mix(in srgb,var(--acc) 18%,transparent)"':''}><td>${x.lane}</td><td>${esc(e.name)}</td><td>${esc(e.club||'')}</td><td><input data-s="${x.id}" value="${x.time_ms!=null?f(x.time_ms):''}" placeholder="m:ss,t" style="width:90px"></td><td><input type="checkbox" data-d="${x.id}"${x.dnf?' checked':''}></td><td>${st}</td></tr>`}).join('')}</table></div>`).join('')||'<p class="em">Noch nicht eingeteilt.</p>'}</details>`}).join('')||'<p class="em">Lege zuerst unter „2 · Runden“ die Runden an.</p>'};
+   return `<details class="box"${r===0||q?' open':''}><summary><b>${esc(R.name||'Runde '+(r+1))}</b> (${Object.keys(H).length} Läufe, ${all.length} Boote) <button class="s" data-rx="${r}">Excel</button></summary>${hs.map(h=>`<div class="w"><b>Lauf ${h}</b><table><tr><th>Bahn</th><th>Boot / Ruderer</th><th>Club</th><th>Zeit</th><th>DNF</th><th>Ergebnis</th></tr>${H[h].sort((a,b)=>a.lane-b.lane).map(x=>{const e=EM[x.entry_id],st=o?(o[x.entry_id]==='q'?(tt(R.to)>=0?'✓ weiter → '+esc(G.rounds[tt(R.to)].name||''):'✓ platziert'):o[x.entry_id]==='l'?'→ '+esc(G.rounds[tt(R.lower)].name||''):'ausgeschieden'):'';return `<tr${q&&match(e)?' style="background:color-mix(in srgb,var(--acc) 18%,transparent)"':''}><td>${x.lane}</td><td>${esc(e.name)}</td><td>${esc(e.club||'')}</td><td><input data-s="${x.id}" value="${x.time_ms!=null?f(x.time_ms):''}" placeholder="m:ss,t" style="width:90px"></td><td><input type="checkbox" data-d="${x.id}"${x.dnf?' checked':''}></td><td>${st}</td></tr>`}).join('')}</table></div>`).join('')||'<p class="em">Noch nicht eingeteilt.</p>'}</details>`}).join('')||'<p class="em">Lege zuerst unter „2 · Runden“ die Runden an.</p>'};
  $('rsb').onclick=()=>regStats(id);
  $('rq').oninput=e=>{Q=e.target.value.trim();draw()};
  $('re').onclick=async()=>{const rows=$('rt').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(x=>{const [n,c,ak,g,b]=x.split(';').map(y=>(y||'').trim());return {regatta_id:id,name:n,club:c||null,ak:ACS.includes(ak)?ak:null,gender:/^m/i.test(g)?'m':/^[wf]/i.test(g)?'w':null,boat:BOATS.includes(b)?b:null}});if(!rows.length)return rm('Keine Zeilen gefunden.');
@@ -618,6 +629,11 @@ async function regView(id){
   if(t.dataset.s){const x=SL.find(z=>z.id===t.dataset.s),v=t.value.trim(),ms=ptime(v);if(v&&!ms)return rm('Zeit bitte als m:ss,t eingeben.');
    const q=await sb.from('reg_slots').update({time_ms:v?ms:null}).eq('id',x.id).select('id');if(q.error||!(q.data||[]).length)return rm('NICHT gespeichert: '+(q.error?q.error.message:'keine Berechtigung'));x.time_ms=v?ms:null;rm('✓ Zeit gespeichert: '+EM[x.entry_id].name,true)}
   else if(t.dataset.d){const x=SL.find(z=>z.id===t.dataset.d),q=await sb.from('reg_slots').update({dnf:t.checked}).eq('id',x.id).select('id');if(q.error||!(q.data||[]).length)return rm('NICHT gespeichert.');x.dnf=t.checked;rm('✓ Gespeichert.',true)}};
+ $('rfu').onchange=async()=>{try{const L=await readNames($('rfu').files[0]);$('rt').value=L.map(x=>[x.name,x.club,x.ak,x.g,x.boat].join(';').replace(/;+$/,'')).join('\n');rm('✓ '+L.length+' Zeilen eingelesen. Jetzt „Hinzufügen“ klicken.',true)}catch(e){rm(e.message)}};
+ $('rres').onclick=e=>{const b=e.target.closest('[data-rx]');if(!b)return;e.preventDefault();const r=+b.dataset.rx,R=G.rounds[r],o=outcome(r),H=['Lauf','Bahn','Boot / Ruderer','Club','Zeit','DNF','Ergebnis'];
+  const D=SL.filter(x=>x.rnd===r).sort((a,b)=>a.heat-b.heat||a.lane-b.lane).map(x=>{const en=EM[x.entry_id];return [x.heat,x.lane,en.name,en.club||'',x.time_ms!=null?f(x.time_ms):'',x.dnf?'DNF':'',o?(o[x.entry_id]==='q'?(tt(R.to)>=0?'weiter → '+(G.rounds[tt(R.to)].name||''):'platziert'):o[x.entry_id]==='l'?'→ '+(G.rounds[tt(R.lower)].name||''):'ausgeschieden'):'']});
+  if(!D.length)return rm('Diese Runde ist noch nicht eingeteilt.');if(typeof XLSX==='undefined')return alert('Excel-Export nicht geladen.');
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([H].concat(D)),(R.name||'Runde').slice(0,30));XLSX.writeFile(wb,'regatta-'+(R.name||'runde'+(r+1)).replace(/[^\w\-]+/g,'_')+'.xlsx')};
  drawRules();draw();
 }
 const dbErr=e=>{const t=(e&&e.message)||String(e);return /row-level security/i.test(t)?'keine Berechtigung (Rolle prüfen)':/does not exist|schema cache|could not find/i.test(t)?'Datenbank-Spalte fehlt: bitte das Reparatur-SQL in Supabase ausführen':/check constraint/i.test(t)?'Datenbank-Regel fehlt: bitte das Reparatur-SQL in Supabase ausführen':t};
@@ -666,7 +682,22 @@ async function regStats(id){
  $('rcv').onclick=()=>{const t=[H].concat(D).map(q=>q.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(';')).join('\r\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+t],{type:'text/csv;charset=utf-8'}));a.download='regatta-auswertung.csv';a.click()};
  upd();
 }
-const APP_VERSION='2026-11-27 r15';
+async function readNames(file){const n=file.name.toLowerCase();let rows;
+ if(/\.xlsx?$/.test(n)){if(typeof XLSX==='undefined')throw new Error('Excel-Leser nicht geladen.');const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''})}
+ else rows=(await file.text()).split(/\r?\n/).map(l=>l.split(/[;\t]/));
+ rows=rows.map(r=>r.map(c=>String(c).trim())).filter(r=>r.some(Boolean));
+ const h=(rows[0]||[]).map(c=>c.toLowerCase()),iv=h.indexOf('vorname'),inn=h.indexOf('nachname'),iname=h.indexOf('name'),hasH=(iv>=0&&inn>=0)||iname>=0;
+ const ic=h.findIndex(c=>c==='club'||c==='verein'),ia=h.indexOf('ak'),ig=h.findIndex(c=>c==='m/w'||c==='geschlecht'),ib=h.findIndex(c=>c==='boot'||c==='bootsklasse'),body=hasH?rows.slice(1):rows;
+ return body.map(r=>hasH?{name:iv>=0&&inn>=0?(r[iv]+' '+r[inn]).trim():r[iname],club:ic>=0?r[ic]:'',ak:ia>=0?r[ia]:'',g:ig>=0?r[ig]:'',boat:ib>=0?r[ib]:''}:{name:r[0],club:r[1]||'',ak:r[2]||'',g:r[3]||'',boat:r[4]||''}).filter(x=>x.name)}
+async function exportEvent(id){
+ try{if(typeof XLSX==='undefined')return alert('Excel-Export nicht geladen.');const S=await loadStats(),e=S.D.E.find(x=>x.id===id);if(!e)return alert('Test nicht gefunden.');
+  let H,D;
+  if(DUR[e.discipline]){const tr=await sb.from('time_results').select('*').eq('event_id',id);if(tr.error)throw tr.error;const aM=Object.fromEntries(S.D.A.map(a=>[a.id,a]));
+   H=['Platz','Name','Club','Distanz (m)','Ø-Split /500 m','Watt'];D=(tr.data||[]).sort((a,b)=>b.distance_m-a.distance_m).map((t,i)=>{const a=aM[t.athlete_id]||{},q=DUR[e.discipline]/(t.distance_m/500);return [i+1,a.name||'',a.club||'',t.distance_m,f(q),Math.round(wattOf(q))]})}
+  else{H=['Platz','Name','Club','AK','m/w','Boot','Zeit','Split/500 m','WR','Diff. WR','% WR'];D=S.R.filter(r=>r.e.id===id).sort((a,b)=>a.fin-b.fin).map((r,i)=>[i+1,r.a.name,r.a.club||'',r.ac||'',r.a.gender||'',r.boat,f(r.fin),sp(r.fin,e.distance_m),r.wr?f(r.wr):'fehlt',r.wr?(r.fin>=r.wr?'+':'−')+f(Math.abs(r.fin-r.wr)):'–',r.wr?pc(r.wr/r.fin*100):'–'])}
+  if(!D.length)return alert('Für diesen Test gibt es noch keine Ergebnisse.');
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([H].concat(D)),'Ergebnisse');XLSX.writeFile(wb,(e.title.replace(/[^\w\-]+/g,'_')||'test')+'.xlsx')}catch(e){alert('Fehler: '+dbErr(e))}}
+const APP_VERSION='2026-11-27 r16';
 async function sysView(){
  app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Systemcheck (nur Admin)</h2><div class="box" id="sy"><p class="em">Prüfe …</p></div>';bindOut();document.getElementById('bk').onclick=homeView;
  const T=[['profiles','id,name,role,club'],['clubs','name'],['athletes','id,name,user_id,birth_year,gender,weight_class,club'],['events','id,title,distance_m,section_m,boat_class,discipline,published,upload_open'],['event_athletes','event_id,athlete_id,boat_class'],['marks','id,event_id,rider_id,kind,t'],['time_results','event_id,athlete_id,distance_m'],['submissions','id,uploaded_by,photo_path,rows,status,event_id,athlete_id'],['athlete_formal','athlete_id,flags'],['world_records','id,age_class,gender,weight_class,boat_class,distance_m,record_ms'],['regattas','id,title,rounds,distance_m'],['reg_entries','id,regatta_id,name,club,ak,gender,boat'],['reg_slots','id,regatta_id,rnd,heat,lane,entry_id,time_ms,dnf']];
@@ -684,25 +715,26 @@ async function sysView(){
 }
 let ATH=[];
 async function loadAth(){
- const [a,p]=await Promise.all([sb.from('athletes').select('*').order('name'),sb.from('profiles').select('id,name').order('name')]);
- const el=document.getElementById('at');
- if(a.error)return el.innerHTML=`<p class="err">${esc(a.error.message)}</p>`;
- ATH=a.data;const PRO=p.data||[];
- el.innerHTML=ATH.length?ATH.map(x=>`<div class="row"><span>${esc(x.name)} <span class="em">${esc(prof(x))}</span></span><span style="display:flex;gap:6px;align-items:center">
-  <select data-l="${x.id}"><option value="">Kein Konto verknüpft</option>${PRO.map(q=>`<option value="${q.id}"${x.user_id===q.id?' selected':''}>${esc(q.name||'(ohne Namen)')}</option>`).join('')}</select>
-  <button class="s" data-e="${x.id}" title="Stammdaten">✎</button><button class="s" data-d="${x.id}" title="Entfernen">✕</button></span></div>`).join(''):'<p class="em">Noch keine Teilnehmer.</p>';
- el.onchange=async e=>{const s=e.target.closest('select');if(!s)return;const r=await sb.from('athletes').update({user_id:s.value||null}).eq('id',s.dataset.l);if(r.error)alert(r.error.message)};
- el.onclick=async e=>{const ed=e.target.closest('[data-e]');if(ed)return editAth(ed.dataset.e);const b=e.target.closest('[data-d]');if(!b||!confirm('Teilnehmer samt allen Zeiten löschen?'))return;const r=await sb.from('athletes').delete().eq('id',b.dataset.d);if(r.error)alert(r.error.message);loadAth()};
- document.getElementById('nb').onclick=async()=>{
-  const ex=new Set(ATH.map(x=>x.name.toLowerCase()));
-  const all=document.getElementById('nl').value.split(/\r?\n|;/).map(x=>x.replace(/\t+/g,' ').trim()).filter(Boolean);
-  const names=[...new Set(all)].filter(n=>!ex.has(n.toLowerCase()));
-  const m=document.getElementById('nmsg');
+ const el=document.getElementById('at');let A,P;
+ try{A=await fetchAll('athletes','*',['id']);P=await fetchAll('profiles','id,name',['id'])}catch(e){return el.innerHTML=`<p class="err">${esc(dbErr(e))}</p>`}
+ ATH=A;const PM=Object.fromEntries(P.map(x=>[x.id,x.name||'(ohne Namen)'])),ks={club:x=>x.club||'Ohne Club',ak:x=>x.birth_year?ageClass(x.birth_year,2027):'Ohne Jahrgang'};let q='',ko='club';
+ el.innerHTML=`<div class="bar"><label>Suchen<input id="aq" placeholder="Name oder Club" style="width:200px"></label><label>Ordner nach<select id="ao"><option value="club">Club</option><option value="ak">Altersklasse</option></select></label><label>Namenliste aus Datei<input type="file" id="nf" accept=".csv,.txt,.xlsx,.xls" style="width:auto"></label><span class="em">${A.length} Teilnehmer</span></div><div id="ab"></div>`;
+ const draw=()=>{const ql=q.toLowerCase(),g={};A.filter(x=>!ql||(x.name+' '+(x.club||'')).toLowerCase().includes(ql)).forEach(x=>(g[ks[ko](x)]=g[ks[ko](x)]||[]).push(x));
+  document.getElementById('ab').innerHTML=Object.keys(g).sort().map(k=>`<details class="box"${ql||Object.keys(g).length===1?' open':''}><summary><b>📁 ${esc(k)}</b> (${g[k].length})</summary>${g[k].sort((x,y)=>x.name.localeCompare(y.name)).map(x=>`<div class="row" style="flex-wrap:wrap"><span>${esc(x.name)} <span class="em">${esc(prof(x))}${x.user_id?' · Konto: '+esc(PM[x.user_id]||'?'):' · kein Konto'}</span></span><span style="display:flex;gap:6px"><button class="s" data-e="${x.id}" title="Stammdaten">✎</button><button class="s" data-l="${x.id}" title="Konto verknüpfen">🔗</button><button class="s" data-d="${x.id}" title="Entfernen">✕</button></span></div>`).join('')}</details>`).join('')||'<p class="em">Keine Treffer.</p>'};
+ document.getElementById('aq').oninput=e=>{q=e.target.value.trim();draw()};document.getElementById('ao').onchange=e=>{ko=e.target.value;draw()};
+ document.getElementById('nf').onchange=async()=>{const m=document.getElementById('nmsg');try{const L=await readNames(document.getElementById('nf').files[0]);document.getElementById('nl').value=L.map(x=>x.name).join('\n');m.textContent=L.length+' Namen eingelesen. Jetzt „Liste übernehmen“ klicken.'}catch(e){m.textContent=e.message}};
+ el.onclick=async e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.e)return editAth(b.dataset.e);
+  if(b.dataset.l){const x=A.find(z=>z.id===b.dataset.l),d=document.getElementById('sd');
+   d.innerHTML=`<div class="box"><b>${esc(x.name)}: Konto verknüpfen</b><div class="bar" style="margin-top:8px"><select id="lks"><option value="">Kein Konto</option>${P.map(y=>`<option value="${y.id}"${x.user_id===y.id?' selected':''}>${esc(y.name||'(ohne Namen)')}</option>`).join('')}</select><button id="lkv">Speichern</button><button class="s" id="lkc">Abbrechen</button></div></div>`;
+   document.getElementById('lkc').onclick=()=>d.innerHTML='';
+   document.getElementById('lkv').onclick=async()=>{const r=await sb.from('athletes').update({user_id:document.getElementById('lks').value||null}).eq('id',x.id);if(r.error)return alert(dbErr(r.error));d.innerHTML='';loadAth()};return}
+  if(b.dataset.d){if(!confirm('Teilnehmer samt allen Zeiten löschen?'))return;const r=await sb.from('athletes').delete().eq('id',b.dataset.d);if(r.error)alert(dbErr(r.error));loadAth()}};
+ document.getElementById('nb').onclick=async()=>{const ex=new Set(A.map(x=>x.name.toLowerCase())),all=document.getElementById('nl').value.split(/\r?\n|;/).map(x=>x.replace(/\t+/g,' ').trim()).filter(Boolean),names=[...new Set(all)].filter(n=>!ex.has(n.toLowerCase())),m=document.getElementById('nmsg');
   if(!names.length){m.textContent='Keine neuen Namen gefunden.';return}
-  const r=await sb.from('athletes').insert(names.map(name=>({name})));
-  if(r.error){m.textContent='Fehler: '+r.error.message;return}
-  m.textContent=names.length+' hinzugefügt'+(all.length>names.length?', '+(all.length-names.length)+' schon vorhanden und übersprungen':'')+'.';
-  document.getElementById('nl').value='';loadAth()};
+  const r=await sb.from('athletes').insert(names.map(name=>({name})));if(r.error){m.textContent='Fehler: '+dbErr(r.error);return}
+  m.textContent=names.length+' hinzugefügt'+(all.length>names.length?', '+(all.length-names.length)+' schon vorhanden und übersprungen':'')+'.';document.getElementById('nl').value='';loadAth()};
+ draw();
 }
 document.getElementById('ver').textContent='Version '+APP_VERSION;
 boot();
