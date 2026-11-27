@@ -29,7 +29,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .w{overflow-x:auto}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}th{color:var(--mute)}
 .tabs{display:flex;gap:8px;margin-bottom:12px}.tabs button{flex:1}
 form{display:flex;flex-direction:column;gap:10px}
-</style></head><body><main id="app"><p class="em">Lädt …</p></main>
+</style></head><body><main id="app"><p class="em">Lädt …</p></main><p id="ver" class="em" style="text-align:center;font-size:13px"></p>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
@@ -84,7 +84,7 @@ async function rowerView(){
  loadHist(document.getElementById('hist'));
 }
 async function trainerView(){
- app.innerHTML=header()+`<div class="bar" style="margin-top:8px"><button id="stb">Auswertung &amp; Vergleich</button><button class="s" id="cb">Rechner</button><button class="s" id="nb2">Nominierungs-Check</button><button class="s" id="lb2">Athletenliste</button><button class="s" id="rg2">Regatta-Verwaltung</button><button class="s" id="gs2">Gesamtauswertung</button></div><h2>Tests</h2><div class="box"><form id="ef" class="bar" style="margin:0">
+ app.innerHTML=header()+`<div class="bar" style="margin-top:8px"><button id="stb">Auswertung &amp; Vergleich</button><button class="s" id="cb">Rechner</button><button class="s" id="nb2">Nominierungs-Check</button><button class="s" id="lb2">Athletenliste</button><button class="s" id="rg2">Regatta-Verwaltung</button><button class="s" id="gs2">Gesamtauswertung</button>${me.role==='admin'?'<button class="s" id="sc2">Systemcheck</button>':''}</div><h2>Tests</h2><div class="box"><form id="ef" class="bar" style="margin:0">
  <label>Name des Tests<input id="et" required placeholder="z. B. 2000 m Test"></label>
  <label>Distanz (m)<input id="ed" type="number" value="2000" min="1" style="width:100px"></label><label>Disziplin<select id="edz"><option value="">–</option><option value="2k">2000 m Ergo</option><option value="6k">6000 m Ergo</option><option value="30min">30-Min-Test</option><option value="60min">1-Stunden-Test</option><option value="lang">Langstrecke Wasser</option><option value="klein">Kleinboot</option><option value="regatta">Regatta</option></select></label><label>Boot<select id="eb">${BOATS.map(b=>`<option>${b}</option>`).join('')}</select></label><button>Anlegen</button></form><div id="ev"></div></div>
  <h2>Fotos &amp; Einreichungen</h2><div class="box" id="ph"></div><div class="box" id="sv"></div>
@@ -97,7 +97,7 @@ async function trainerView(){
   const {data:nv,error}=await sb.from('events').insert({title:document.getElementById('et').value.trim(),distance_m:+document.getElementById('ed').value||2000,boat_class:document.getElementById('eb').value,discipline:document.getElementById('edz').value||null}).select('id').single();
   if(!error){const al=await sb.from('athletes').select('id');if(al.data&&al.data.length)await sb.from('event_athletes').insert(al.data.map(x=>({event_id:nv.id,athlete_id:x.id})))}
   if(error)alert(error.message);document.getElementById('et').value='';loadEv()};
- document.getElementById('stb').onclick=statsView;document.getElementById('cb').onclick=calcView;document.getElementById('nb2').onclick=nomView;document.getElementById('lb2').onclick=listView;document.getElementById('rg2').onclick=()=>regView();document.getElementById('gs2').onclick=gesamtView;photoUI(document.getElementById('ph'));loadEv();loadAth();loadWr();loadPeople();
+ document.getElementById('stb').onclick=statsView;document.getElementById('cb').onclick=calcView;document.getElementById('nb2').onclick=nomView;document.getElementById('lb2').onclick=listView;document.getElementById('rg2').onclick=()=>regView();document.getElementById('gs2').onclick=gesamtView;if(me.role==='admin')document.getElementById('sc2').onclick=sysView;photoUI(document.getElementById('ph'));loadEv();loadAth();loadWr();loadPeople();
 }
 const DZL={'2k':'2000 m Ergo','6k':'6000 m Ergo','30min':'30-Min-Test','60min':'1-Stunden-Test','lang':'Langstrecke Wasser','klein':'Kleinboot','regatta':'Regatta','':'Ohne Typ'};
 let EVQ='',EVT='';
@@ -666,6 +666,22 @@ async function regStats(id){
  $('rcv').onclick=()=>{const t=[H].concat(D).map(q=>q.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(';')).join('\r\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+t],{type:'text/csv;charset=utf-8'}));a.download='regatta-auswertung.csv';a.click()};
  upd();
 }
+const APP_VERSION='2026-11-27 r15';
+async function sysView(){
+ app.innerHTML=header()+'<button class="s" id="bk">Zurück</button><h2>Systemcheck (nur Admin)</h2><div class="box" id="sy"><p class="em">Prüfe …</p></div>';bindOut();document.getElementById('bk').onclick=homeView;
+ const T=[['profiles','id,name,role,club'],['clubs','name'],['athletes','id,name,user_id,birth_year,gender,weight_class,club'],['events','id,title,distance_m,section_m,boat_class,discipline,published,upload_open'],['event_athletes','event_id,athlete_id,boat_class'],['marks','id,event_id,rider_id,kind,t'],['time_results','event_id,athlete_id,distance_m'],['submissions','id,uploaded_by,photo_path,rows,status,event_id,athlete_id'],['athlete_formal','athlete_id,flags'],['world_records','id,age_class,gender,weight_class,boat_class,distance_m,record_ms'],['regattas','id,title,rounds,distance_m'],['reg_entries','id,regatta_id,name,club,ak,gender,boat'],['reg_slots','id,regatta_id,rnd,heat,lane,entry_id,time_ms,dnf']];
+ const out=[];
+ for(const [t,c] of T){const r=await sb.from(t).select(c).limit(1);out.push([t,!r.error,r.error?r.error.message:'ok'])}
+ const sn=await sb.rpc('server_now');out.push(['Funktion server_now',!sn.error,sn.error?sn.error.message:'ok']);
+ const ev=await sb.from('events').select('id,published').limit(1);
+ if(ev.data&&ev.data[0]){const u=await sb.from('events').update({published:ev.data[0].published}).eq('id',ev.data[0].id).select('id');out.push(['Test ändern (events)',!u.error&&(u.data||[]).length>0,u.error?u.error.message:(u.data||[]).length?'ok':'keine Berechtigung'])}
+ const sb2=await sb.from('submissions').select('id,status').limit(1);
+ if(sb2.data&&sb2.data[0]){const u=await sb.from('submissions').update({status:sb2.data[0].status}).eq('id',sb2.data[0].id).select('id');out.push(['Einreichung ändern (submissions)',!u.error&&(u.data||[]).length>0,u.error?u.error.message:(u.data||[]).length?'ok':'keine Berechtigung'])}
+ const bk=await sb.storage.from('photos').list('',{limit:1});out.push(['Foto-Speicher (photos)',!bk.error,bk.error?bk.error.message:'ok']);
+ let api='nicht erreichbar';try{const r=await fetch('/api/extract');api=r.status===405||r.status===401?'ok (Funktion vorhanden)':'Status '+r.status}catch(e){}
+ out.push(['Foto-Funktion /api/extract',api.startsWith('ok'),api]);
+ document.getElementById('sy').innerHTML=`<p>Version: <b>${APP_VERSION}</b> · Konto: ${esc(me.name||'')} · Rolle: <b>${me.role}</b></p>`+out.map(([n,ok,m])=>`<div class="row"><span>${ok?'✓':'✗'} ${esc(n)}</span><span class="${ok?'em':'err'}" style="text-align:right;white-space:normal">${esc(m)}</span></div>`).join('')+`<p class="em">✗ bei Tabellen oder Spalten: das passende SQL aus der Unterhaltung ausführen. „keine Berechtigung“: Rolle prüfen.</p>`;
+}
 let ATH=[];
 async function loadAth(){
  const [a,p]=await Promise.all([sb.from('athletes').select('*').order('name'),sb.from('profiles').select('id,name').order('name')]);
@@ -688,5 +704,6 @@ async function loadAth(){
   m.textContent=names.length+' hinzugefügt'+(all.length>names.length?', '+(all.length-names.length)+' schon vorhanden und übersprungen':'')+'.';
   document.getElementById('nl').value='';loadAth()};
 }
+document.getElementById('ver').textContent='Version '+APP_VERSION;
 boot();
 </script></body></html>
